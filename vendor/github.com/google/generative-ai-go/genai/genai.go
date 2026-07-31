@@ -147,6 +147,23 @@ func (m *GenerativeModel) GenerateContent(ctx context.Context, parts ...Part) (*
 			req.Header.Set("Content-Type", "application/json")
 			req.Header.Set("Authorization", "Bearer "+apiKey)
 			resp, err = m.client.httpClient.Do(req)
+		} else if provider == "xai" {
+			// Call xAI (Grok) API
+			url := "https://api.x.ai/v1/chat/completions"
+			xaiPayload := map[string]interface{}{
+				"model": "grok-beta",
+				"messages": []map[string]string{
+					{"role": "user", "content": promptText.String()},
+				},
+			}
+			jsonBytes, _ := json.Marshal(xaiPayload)
+			req, reqErr := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonBytes))
+			if reqErr != nil {
+				return nil, reqErr
+			}
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Authorization", "Bearer "+apiKey)
+			resp, err = m.client.httpClient.Do(req)
 		} else {
 			// Call Google Gemini API
 			url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s", modelName, apiKey)
@@ -191,7 +208,7 @@ func (m *GenerativeModel) GenerateContent(ctx context.Context, parts ...Part) (*
 
 		if resp.StatusCode >= 400 {
 			lastErr = fmt.Errorf("API error (HTTP %d): %s", resp.StatusCode, string(bodyBytes))
-			slog.Warn("API key quota/rate limit/error, auto-shifting to next API key",
+			slog.Warn("API key error/quota/license failure, auto-shifting to next key",
 				"provider", provider,
 				"key_mask", maskKey(apiKey),
 				"http_status", resp.StatusCode,
@@ -200,16 +217,16 @@ func (m *GenerativeModel) GenerateContent(ctx context.Context, parts ...Part) (*
 			continue
 		}
 
-		if provider == "minimax" {
-			var mmResp struct {
+		if provider == "minimax" || provider == "xai" {
+			var openAiResp struct {
 				Choices []struct {
 					Message struct {
 						Content string `json:"content"`
 					} `json:"message"`
 				} `json:"choices"`
 			}
-			if err := json.Unmarshal(bodyBytes, &mmResp); err != nil || len(mmResp.Choices) == 0 {
-				lastErr = fmt.Errorf("failed to decode MiniMax response: %s", string(bodyBytes))
+			if err := json.Unmarshal(bodyBytes, &openAiResp); err != nil || len(openAiResp.Choices) == 0 {
+				lastErr = fmt.Errorf("failed to decode %s response: %s", provider, string(bodyBytes))
 				m.client.RotateKey()
 				continue
 			}
@@ -217,7 +234,7 @@ func (m *GenerativeModel) GenerateContent(ctx context.Context, parts ...Part) (*
 				Candidates: []*Candidate{
 					{
 						Content: &Content{
-							Parts: []Part{Text(mmResp.Choices[0].Message.Content)},
+							Parts: []Part{Text(openAiResp.Choices[0].Message.Content)},
 							Role:  "model",
 						},
 					},
@@ -319,7 +336,7 @@ func (c *Client) RotateKey() string {
 	}
 	newVal := atomic.AddUint32(&c.currentIdx, 1)
 	newIdx := newVal % uint32(len(c.apiKeys))
-	slog.Info("rotated API key", "active_key_index", newIdx, "key_mask", maskKey(c.apiKeys[newIdx]), "total_keys", len(c.apiKeys))
+	slog.Info("rotated API key", "active_key_index", newIdx, "provider", getProvider(c.apiKeys[newIdx]), "key_mask", maskKey(c.apiKeys[newIdx]), "total_keys", len(c.apiKeys))
 	return c.apiKeys[newIdx]
 }
 
@@ -342,7 +359,7 @@ func (c *Client) SelectKey(index int) error {
 		return fmt.Errorf("invalid key index: %d (valid range: 0-%d)", index, len(c.apiKeys)-1)
 	}
 	atomic.StoreUint32(&c.currentIdx, uint32(index))
-	slog.Info("manually selected active API key", "index", index, "key_mask", maskKey(c.apiKeys[index]))
+	slog.Info("manually selected active API key", "index", index, "provider", getProvider(c.apiKeys[index]), "key_mask", maskKey(c.apiKeys[index]))
 	return nil
 }
 
@@ -360,6 +377,9 @@ func (c *Client) Close() error {
 func getProvider(key string) string {
 	if strings.HasPrefix(key, "sk-api-") {
 		return "minimax"
+	}
+	if strings.HasPrefix(key, "xai-") {
+		return "xai"
 	}
 	return "gemini"
 }
