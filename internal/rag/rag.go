@@ -13,12 +13,16 @@ import (
 )
 
 type DocumentChunk struct {
-	ID        string    `json:"id"`
-	SourceURL string    `json:"source_url"`
-	Title     string    `json:"title"`
-	Content   string    `json:"content"`
-	Words     []string  `json:"-"`
-	CreatedAt time.Time `json:"created_at"`
+	ID         string            `json:"id"`
+	SourceURL  string            `json:"source_url"`
+	Title      string            `json:"title"`
+	Content    string            `json:"content"`
+	Category   string            `json:"category"` // debate, research, outcome, chat, audit
+	Keyword    string            `json:"keyword"`
+	TargetSite string            `json:"target_site"`
+	Metadata   map[string]string `json:"metadata"`
+	Words      []string          `json:"-"`
+	CreatedAt  time.Time         `json:"created_at"`
 }
 
 type RAGEngine struct {
@@ -32,6 +36,80 @@ func New(cr *crawler.Crawler) *RAGEngine {
 		crawler: cr,
 		chunks:  make([]DocumentChunk, 0),
 	}
+}
+
+// IngestWithMetadata stores chunk with tags for filtering & duplicate prevention
+func (r *RAGEngine) IngestWithMetadata(source, title, content, category, keyword, targetSite string, metadata map[string]string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	chunk := DocumentChunk{
+		ID:         fmt.Sprintf("%s-%d", category, len(r.chunks)+1),
+		SourceURL:  source,
+		Title:      title,
+		Content:    content,
+		Category:   category,
+		Keyword:    strings.ToLower(keyword),
+		TargetSite: strings.ToLower(targetSite),
+		Metadata:   metadata,
+		Words:      tokenize(content + " " + title + " " + keyword + " " + targetSite),
+		CreatedAt:  time.Now(),
+	}
+	r.chunks = append(r.chunks, chunk)
+	slog.Info("RAG: ingested item with metadata", "category", category, "keyword", keyword, "target", targetSite)
+}
+
+// CheckDuplicateTargetOrKeyword returns true if a target backlink site or keyword is already in the RAG memory
+func (r *RAGEngine) CheckDuplicateTargetOrKeyword(keyword, targetSite string) (bool, string) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	kwLower := strings.ToLower(strings.TrimSpace(keyword))
+	targetLower := strings.ToLower(strings.TrimSpace(targetSite))
+
+	for _, chunk := range r.chunks {
+		if kwLower != "" && strings.EqualFold(chunk.Keyword, kwLower) {
+			return true, fmt.Sprintf("Keyword '%s' was already researched/assigned in RAG entry: %s", keyword, chunk.Title)
+		}
+		if targetLower != "" && chunk.TargetSite != "" && strings.Contains(strings.ToLower(chunk.TargetSite), targetLower) {
+			return true, fmt.Sprintf("Backlink target '%s' was already targeted/used in RAG entry: %s", targetSite, chunk.Title)
+		}
+	}
+	return false, ""
+}
+
+// IngestDebateTranscript indexes an agent-to-agent debate into system-wide shared RAG memory
+func (r *RAGEngine) IngestDebateTranscript(taskID uint, keyword, targetSite, transcriptJSON, finalDecision string) {
+	summary := fmt.Sprintf("Agent Debate for Task #%d (Keyword: %s, Target: %s)\nFinal Decision: %s\nTranscript:\n%s",
+		taskID, keyword, targetSite, finalDecision, transcriptJSON)
+	r.IngestWithMetadata(
+		fmt.Sprintf("debate-task-%d", taskID),
+		fmt.Sprintf("Agent Debate: %s on %s", keyword, targetSite),
+		summary,
+		"debate",
+		keyword,
+		targetSite,
+		map[string]string{"task_id": fmt.Sprintf("%d", taskID)},
+	)
+}
+
+// IngestOutcomeResult indexes rank movement & traffic performance into RAG self-improvement memory
+func (r *RAGEngine) IngestOutcomeResult(taskID uint, keyword, targetSite string, rankCurrent, rankPrev int, notes string) {
+	summary := fmt.Sprintf("SEO Rank Outcome for Task #%d (Keyword: %s, Target: %s)\nPrevious Rank: %d -> Current Rank: %d\nNotes: %s",
+		taskID, keyword, targetSite, rankPrev, rankCurrent, notes)
+	r.IngestWithMetadata(
+		fmt.Sprintf("outcome-task-%d", taskID),
+		fmt.Sprintf("Rank Outcome: %s (Position %d)", keyword, rankCurrent),
+		summary,
+		"outcome",
+		keyword,
+		targetSite,
+		map[string]string{
+			"task_id":      fmt.Sprintf("%d", taskID),
+			"rank_current": fmt.Sprintf("%d", rankCurrent),
+			"rank_prev":    fmt.Sprintf("%d", rankPrev),
+		},
+	)
 }
 
 // IngestURL crawls a URL and stores semantic chunks in the RAG store
@@ -243,4 +321,33 @@ func scoreBM25Like(queryTokens, docTokens []string) float64 {
 		}
 	}
 	return score
+}
+
+// GetStats returns a summary of the RAG memory contents for the dashboard
+func (r *RAGEngine) GetStats() map[string]interface{} {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	categoryCounts := make(map[string]int)
+	for _, c := range r.chunks {
+		cat := c.Category
+		if cat == "" {
+			cat = "general"
+		}
+		categoryCounts[cat]++
+	}
+
+	return map[string]interface{}{
+		"total_chunks":    len(r.chunks),
+		"category_counts": categoryCounts,
+		"status":          "active",
+		"store_type":      "in-memory BM25/TF-IDF",
+	}
+}
+
+// Size returns the number of stored document chunks
+func (r *RAGEngine) Size() int {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return len(r.chunks)
 }

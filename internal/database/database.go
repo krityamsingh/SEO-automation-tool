@@ -2,6 +2,7 @@ package database
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -25,8 +26,12 @@ func Connect(databaseURL string) (*gorm.DB, error) {
 	} else if strings.HasPrefix(databaseURL, "postgres://") || strings.HasPrefix(databaseURL, "postgresql://") {
 		dialector = postgres.Open(databaseURL)
 	} else {
-		// Default to SQLite with WAL mode
-		dialector = sqlite.Open("agent.db?_journal_mode=WAL&_busy_timeout=5000")
+		// Default to SQLite with WAL mode (/tmp/agent.db on Vercel serverless)
+		dbPath := "agent.db"
+		if os.Getenv("VERCEL") != "" {
+			dbPath = "/tmp/agent.db"
+		}
+		dialector = sqlite.Open(dbPath + "?_journal_mode=WAL&_busy_timeout=5000")
 	}
 
 	db, err := gorm.Open(dialector, &gorm.Config{
@@ -57,10 +62,84 @@ func AutoMigrate(db *gorm.DB) error {
 		&DailyCap{},
 		&SchemaCache{},
 		&Entity{},
+		&User{},
+		&Task{},
+		&AgentDebate{},
+		&Notification{},
+		&RankHistory{},
 	)
 }
 
 // Models
+
+type User struct {
+	ID               uint      `gorm:"primaryKey" json:"id"`
+	Username         string    `gorm:"uniqueIndex;not null" json:"username"`
+	Email            string    `gorm:"uniqueIndex;not null" json:"email"`
+	PasswordHash     string    `json:"-"`
+	Role             string    `gorm:"not null" json:"role"` // dev, intern
+	TasksCompleted   int       `gorm:"default:0" json:"tasks_completed"`
+	TasksPending     int       `gorm:"default:0" json:"tasks_pending"`
+	TasksOverdue     int       `gorm:"default:0" json:"tasks_overdue"`
+	VerificationRate float64   `gorm:"default:100.0" json:"verification_rate"`
+	CreatedAt        time.Time `json:"created_at"`
+	LastLogin        *time.Time`json:"last_login"`
+}
+
+type Task struct {
+	ID                uint       `gorm:"primaryKey" json:"id"`
+	Keyword           string     `gorm:"not null;index" json:"keyword"`
+	BacklinkTarget    string     `gorm:"not null" json:"backlink_target"`
+	Angle             string     `json:"angle"` // SEO, AEO, GEO
+	Title             string     `json:"title"`
+	BlogDraft         string     `gorm:"type:text" json:"blog_draft"`
+	SocialDraft       string     `gorm:"type:text" json:"social_draft"`
+	AssignedInternID  *uint      `gorm:"index" json:"assigned_intern_id"`
+	AssignedInternName string    `json:"assigned_intern_name"`
+	Status            string     `gorm:"default:proposed;index" json:"status"` // proposed, ready, assigned, in_progress, submitted, verified, rejected, closed
+	SubmittedProofURL string     `json:"submitted_proof_url"`
+	VerificationNotes string     `gorm:"type:text" json:"verification_notes"`
+	RankCurrent       int        `gorm:"default:0" json:"rank_current"`
+	RankPrevious      int        `gorm:"default:0" json:"rank_previous"`
+	FlaggedForDev     bool       `gorm:"default:false" json:"flagged_for_dev"`
+	FlagReason        string     `json:"flag_reason"`
+	DebateID          *uint      `gorm:"index" json:"debate_id"`
+	CreatedAt         time.Time  `json:"created_at"`
+	SubmittedAt       *time.Time `json:"submitted_at"`
+	VerifiedAt        *time.Time `json:"verified_at"`
+}
+
+type AgentDebate struct {
+	ID               uint      `gorm:"primaryKey" json:"id"`
+	TaskID           *uint     `gorm:"index" json:"task_id"`
+	Keyword          string    `gorm:"index" json:"keyword"`
+	BacklinkTarget   string    `json:"backlink_target"`
+	Status           string    `json:"status"` // debating, consensus, disagreement_flagged
+	DebateTranscript string    `gorm:"type:text" json:"debate_transcript"` // JSON array of messages
+	FinalDecision    string    `gorm:"type:text" json:"final_decision"`
+	RoundsCount      int       `json:"rounds_count"`
+	CreatedAt        time.Time `json:"created_at"`
+}
+
+type Notification struct {
+	ID        uint      `gorm:"primaryKey" json:"id"`
+	UserID    uint      `gorm:"index" json:"user_id"`
+	UserRole  string    `json:"user_role"` // dev, intern
+	Title     string    `json:"title"`
+	Message   string    `gorm:"type:text" json:"message"`
+	Type      string    `json:"type"` // task_assigned, submission_verified, submission_rejected, debate_disagreement, rank_drop, task_overdue
+	Read      bool      `gorm:"default:false" json:"read"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type RankHistory struct {
+	ID           uint      `gorm:"primaryKey" json:"id"`
+	TaskID       uint      `gorm:"index" json:"task_id"`
+	Keyword      string    `gorm:"index" json:"keyword"`
+	RankPosition int       `json:"rank_position"`
+	TrafficScore float64   `json:"traffic_score"`
+	CheckedAt    time.Time `json:"checked_at"`
+}
 
 type Keyword struct {
 	ID                   uint           `gorm:"primaryKey" json:"id"`

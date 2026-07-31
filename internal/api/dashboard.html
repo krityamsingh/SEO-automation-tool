@@ -1,0 +1,1271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>kenerateai.com — Multi-Agent Autonomous SEO & Backlink Platform</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Outfit:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    :root {
+      --bg-dark: #090d16;
+      --bg-card: rgba(18, 24, 38, 0.75);
+      --bg-card-hover: rgba(28, 36, 56, 0.85);
+      --border-color: rgba(255, 255, 255, 0.08);
+      --border-accent: rgba(99, 102, 241, 0.3);
+      --primary: #6366f1;
+      --primary-glow: rgba(99, 102, 241, 0.35);
+      --secondary: #8b5cf6;
+      --cyan: #06b6d4;
+      --emerald: #10b981;
+      --rose: #f43f5e;
+      --amber: #f59e0b;
+      --text-main: #f3f4f6;
+      --text-muted: #9ca3af;
+      --font-heading: 'Outfit', sans-serif;
+      --font-body: 'Inter', sans-serif;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background-color: var(--bg-dark);
+      background-image: 
+        radial-gradient(at 10% 10%, rgba(99, 102, 241, 0.12) 0px, transparent 50%),
+        radial-gradient(at 90% 80%, rgba(139, 92, 246, 0.12) 0px, transparent 50%),
+        radial-gradient(at 50% 50%, rgba(6, 182, 212, 0.05) 0px, transparent 50%);
+      color: var(--text-main);
+      font-family: var(--font-body);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Glassmorphism Header */
+    header {
+      background: rgba(9, 13, 22, 0.85);
+      backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--border-color);
+      padding: 16px 32px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .brand-logo {
+      width: 40px;
+      height: 40px;
+      background: linear-gradient(135deg, var(--primary), var(--cyan));
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      font-family: var(--font-heading);
+      font-size: 20px;
+      color: #fff;
+      box-shadow: 0 0 20px var(--primary-glow);
+    }
+
+    .brand-name {
+      font-family: var(--font-heading);
+      font-size: 22px;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+      background: linear-gradient(90deg, #ffffff, #a5b4fc);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .nav-tabs {
+      display: flex;
+      gap: 8px;
+      background: rgba(255, 255, 255, 0.03);
+      padding: 4px;
+      border-radius: 12px;
+      border: 1px solid var(--border-color);
+    }
+
+    .tab-btn {
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      padding: 8px 18px;
+      border-radius: 8px;
+      font-weight: 600;
+      font-size: 14px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .tab-btn:hover {
+      color: #fff;
+      background: rgba(255, 255, 255, 0.05);
+    }
+
+    .tab-btn.active {
+      background: var(--primary);
+      color: #fff;
+      box-shadow: 0 4px 12px var(--primary-glow);
+    }
+
+    .user-pill {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border-color);
+      padding: 6px 14px;
+      border-radius: 20px;
+    }
+
+    .user-role-badge {
+      padding: 2px 8px;
+      border-radius: 10px;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+    .role-dev { background: rgba(139, 92, 246, 0.25); color: #c084fc; border: 1px solid rgba(139, 92, 246, 0.4); }
+    .role-intern { background: rgba(6, 182, 212, 0.25); color: #67e8f9; border: 1px solid rgba(6, 182, 212, 0.4); }
+
+    .btn {
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-weight: 600;
+      font-size: 13px;
+      cursor: pointer;
+      border: none;
+      transition: all 0.2s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, var(--primary), var(--secondary));
+      color: #fff;
+      box-shadow: 0 4px 12px var(--primary-glow);
+    }
+    .btn-primary:hover { opacity: 0.9; transform: translateY(-1px); }
+
+    .btn-secondary {
+      background: rgba(255, 255, 255, 0.08);
+      color: var(--text-main);
+      border: 1px solid var(--border-color);
+    }
+    .btn-secondary:hover { background: rgba(255, 255, 255, 0.15); }
+
+    .btn-sm { padding: 5px 10px; font-size: 12px; }
+
+    /* Main Container */
+    main {
+      flex: 1;
+      padding: 24px 32px;
+      max-width: 1600px;
+      margin: 0 auto;
+      width: 100%;
+    }
+
+    /* Metrics Ribbon */
+    .metrics-ribbon {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 16px;
+      margin-bottom: 28px;
+    }
+
+    .metric-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 16px;
+      padding: 20px;
+      backdrop-filter: blur(12px);
+      transition: transform 0.2s ease, border-color 0.2s ease;
+    }
+    .metric-card:hover {
+      transform: translateY(-2px);
+      border-color: var(--border-accent);
+    }
+
+    .metric-title {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 8px;
+    }
+
+    .metric-value {
+      font-family: var(--font-heading);
+      font-size: 28px;
+      font-weight: 800;
+      color: #fff;
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+    }
+
+    .metric-sub {
+      font-size: 12px;
+      color: var(--emerald);
+      font-weight: 600;
+    }
+
+    /* Tab Content Section */
+    .tab-content {
+      display: none;
+    }
+    .tab-content.active {
+      display: block;
+      animation: fadeIn 0.3s ease;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(6px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* Task Kanban Board */
+    .kanban-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 20px;
+    }
+
+    .kanban-column {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 16px;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      min-height: 500px;
+    }
+
+    .column-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-bottom: 10px;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .column-title {
+      font-family: var(--font-heading);
+      font-weight: 700;
+      font-size: 15px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .count-badge {
+      background: rgba(255, 255, 255, 0.1);
+      padding: 2px 8px;
+      border-radius: 10px;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .task-card {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      padding: 16px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    .task-card:hover {
+      background: var(--bg-card-hover);
+      border-color: var(--primary);
+      transform: scale(1.01);
+    }
+
+    .task-meta {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+
+    .angle-tag {
+      font-size: 10px;
+      font-weight: 800;
+      padding: 3px 8px;
+      border-radius: 6px;
+      text-transform: uppercase;
+    }
+    .angle-seo { background: rgba(99, 102, 241, 0.2); color: #818cf8; }
+    .angle-aeo { background: rgba(6, 182, 212, 0.2); color: #22d3ee; }
+    .angle-geo { background: rgba(16, 185, 129, 0.2); color: #34d399; }
+
+    .task-title {
+      font-weight: 700;
+      font-size: 15px;
+      margin-bottom: 6px;
+      line-height: 1.3;
+    }
+
+    .task-details {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-bottom: 12px;
+    }
+
+    .task-assignee {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 12px;
+      padding-top: 8px;
+      border-top: 1px dashed var(--border-color);
+    }
+
+    /* Agent Debate Log View */
+    .debate-container {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 16px;
+      padding: 24px;
+    }
+
+    .debate-msg {
+      display: flex;
+      gap: 16px;
+      padding: 16px;
+      background: rgba(255, 255, 255, 0.02);
+      border-radius: 12px;
+      border-left: 3px solid var(--primary);
+      margin-bottom: 12px;
+    }
+    .msg-avatar { font-size: 24px; }
+    .msg-body { flex: 1; }
+    .msg-header { display: flex; gap: 10px; align-items: center; margin-bottom: 4px; }
+    .msg-agent { font-weight: 700; font-size: 14px; }
+    .msg-role { font-size: 11px; color: var(--text-muted); background: rgba(255,255,255,0.06); padding: 2px 6px; border-radius: 4px; }
+    .msg-text { font-size: 13px; line-height: 1.5; color: #e5e7eb; }
+
+    /* Intern Leaderboard Table */
+    .table-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 16px;
+      padding: 24px;
+      overflow-x: auto;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      text-align: left;
+      font-size: 14px;
+    }
+    th {
+      padding: 12px 16px;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      border-bottom: 1px solid var(--border-color);
+    }
+    td {
+      padding: 16px;
+      border-bottom: 1px solid var(--border-color);
+    }
+    tr:hover td { background: rgba(255, 255, 255, 0.02); }
+
+    /* Modal Styling */
+    .modal-backdrop {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.75);
+      backdrop-filter: blur(8px);
+      z-index: 200;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .modal-backdrop.active { display: flex; }
+
+    .modal-box {
+      background: #111827;
+      border: 1px solid var(--border-accent);
+      border-radius: 20px;
+      width: 100%;
+      max-width: 650px;
+      padding: 28px;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.8);
+      max-height: 90vh;
+      overflow-y: auto;
+    }
+
+    .form-group {
+      margin-bottom: 16px;
+    }
+    .form-label {
+      display: block;
+      font-size: 12px;
+      font-weight: 700;
+      margin-bottom: 6px;
+      color: var(--text-muted);
+    }
+    .form-control {
+      width: 100%;
+      padding: 10px 14px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      color: #fff;
+      font-size: 14px;
+    }
+    .form-control:focus {
+      outline: none;
+      border-color: var(--primary);
+    }
+
+    /* Floating Chat Drawer for Interns */
+    .chat-widget {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      width: 380px;
+      height: 520px;
+      background: #111827;
+      border: 1px solid var(--border-accent);
+      border-radius: 20px;
+      display: none;
+      flex-direction: column;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.7);
+      z-index: 150;
+      overflow: hidden;
+    }
+    .chat-widget.active { display: flex; }
+
+    .chat-header {
+      background: rgba(99, 102, 241, 0.15);
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-weight: 700;
+      font-size: 14px;
+    }
+
+    .chat-body {
+      flex: 1;
+      padding: 16px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .chat-bubble {
+      max-width: 85%;
+      padding: 10px 14px;
+      border-radius: 12px;
+      font-size: 13px;
+      line-height: 1.4;
+    }
+    .bubble-user {
+      align-self: flex-end;
+      background: var(--primary);
+      color: #fff;
+    }
+    .bubble-ai {
+      align-self: flex-start;
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid var(--border-color);
+      color: #e5e7eb;
+    }
+
+    .chat-footer {
+      padding: 12px;
+      border-top: 1px solid var(--border-color);
+      display: flex;
+      gap: 8px;
+    }
+
+    .chat-fab {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      width: 56px;
+      height: 56px;
+      border-radius: 28px;
+      background: linear-gradient(135deg, var(--primary), var(--cyan));
+      color: #fff;
+      border: none;
+      font-size: 24px;
+      cursor: pointer;
+      box-shadow: 0 10px 25px var(--primary-glow);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 149;
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="brand">
+      <div class="brand-logo">K</div>
+      <div>
+        <div class="brand-name">kenerateai.com</div>
+        <div style="font-size: 11px; color: var(--text-muted);">Multi-Agent SEO & Backlink Automation</div>
+      </div>
+    </div>
+
+    <div class="nav-tabs">
+      <button class="tab-btn active" onclick="switchTab('kanban')">📌 Task Board</button>
+      <button class="tab-btn" onclick="switchTab('debates')">🤖 Agent Debates</button>
+      <button class="tab-btn" onclick="switchTab('interns')">👥 Team Leaderboard</button>
+      <button class="tab-btn" onclick="switchTab('analytics')">📈 SEO Analytics</button>
+    </div>
+
+    <div style="display: flex; align-items: center; gap: 16px;">
+      <button class="btn btn-primary" onclick="triggerAutonomousCycle()">⚡ Trigger Agent Debate</button>
+      <!-- Notification Bell -->
+      <div style="position:relative;">
+        <button onclick="toggleNotifPanel()" style="background:rgba(255,255,255,0.08);border:1px solid var(--border-color);color:var(--text-main);padding:8px 12px;border-radius:8px;cursor:pointer;font-size:16px;">🔔</button>
+        <span id="notifBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:var(--rose);color:#fff;font-size:10px;font-weight:700;padding:2px 5px;border-radius:10px;min-width:18px;justify-content:center;align-items:center;"></span>
+        <div id="notifDropdown" style="display:none;position:absolute;top:42px;right:0;width:300px;background:rgba(9,13,22,0.97);border:1px solid var(--border-color);border-radius:12px;padding:12px;z-index:200;backdrop-filter:blur(16px);" class="notif-dropdown">
+          <div style="font-size:12px;font-weight:700;color:var(--text-muted);margin-bottom:8px;">NOTIFICATIONS</div>
+          <div id="notifPanel"><div style="color:var(--text-muted);font-size:13px;text-align:center;padding:16px;">Loading...</div></div>
+        </div>
+      </div>
+      <div class="user-pill" id="userPill">
+        <span id="usernameDisplay">Guest</span>
+        <span class="user-role-badge role-dev" id="roleBadge">DEV</span>
+        <button class="btn btn-secondary btn-sm" onclick="openLoginModal()">Login</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- RAG Memory Status Bar -->
+  <div style="background:rgba(6,182,212,0.06);border-bottom:1px solid rgba(6,182,212,0.15);padding:8px 32px;font-size:12px;">
+    <span style="color:var(--text-muted);margin-right:8px;">🧠 Shared RAG Memory:</span>
+    <span id="ragStatsPanel">Loading RAG stats...</span>
+  </div>
+
+  <main>
+    <!-- Top Metrics Ribbon -->
+    <div class="metrics-ribbon">
+      <div class="metric-card">
+        <div class="metric-title">Active AI Agents</div>
+        <div class="metric-value">11 <span style="font-size: 14px; font-weight: 500; color: var(--cyan);">Specialized</span></div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-title">Tasks Verified</div>
+        <div class="metric-value" id="verifiedCount">0 <span class="metric-sub">verified</span></div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-title">Active Pending</div>
+        <div class="metric-value" id="pendingCount">0 <span class="metric-sub">pending</span></div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-title">Search Ranking Impact</div>
+        <div class="metric-value" style="color: var(--emerald);">+42.8% <span style="font-size: 13px; color: var(--text-muted);">Traffic</span></div>
+      </div>
+    </div>
+
+    <!-- Agent Live Feed Panel -->
+    <div style="background:var(--bg-card);border:1px solid var(--border-color);border-radius:16px;padding:16px;margin-bottom:24px;backdrop-filter:blur(12px);">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+        <div style="font-size:13px;font-weight:700;color:var(--text-main);">🤖 Live Agent Activity Feed <span style="font-size:11px;color:var(--emerald);font-weight:400;">● auto-refreshes every 5s</span></div>
+      </div>
+      <div id="agentFeedPanel" style="max-height:160px;overflow-y:auto;">Loading...</div>
+    </div>
+
+    <!-- TAB 1: TASK KANBAN BOARD -->
+    <div id="tab-kanban" class="tab-content active">
+      <div class="kanban-grid">
+        <!-- Ready / Assigned -->
+        <div class="kanban-column">
+          <div class="column-header">
+            <div class="column-title">📋 Ready & Assigned <span class="count-badge" id="badgeAssigned">0</span></div>
+          </div>
+          <div id="colAssigned" style="display: flex; flex-direction: column; gap: 12px;"></div>
+        </div>
+
+        <!-- Submitted for Verification -->
+        <div class="kanban-column">
+          <div class="column-header">
+            <div class="column-title">🔍 Submitted (Verifying) <span class="count-badge" id="badgeSubmitted">0</span></div>
+          </div>
+          <div id="colSubmitted" style="display: flex; flex-direction: column; gap: 12px;"></div>
+        </div>
+
+        <!-- Verified / Done -->
+        <div class="kanban-column">
+          <div class="column-header">
+            <div class="column-title">✅ Verified Live <span class="count-badge" id="badgeVerified">0</span></div>
+          </div>
+          <div id="colVerified" style="display: flex; flex-direction: column; gap: 12px;"></div>
+        </div>
+
+        <!-- Rejected / Flagged -->
+        <div class="kanban-column">
+          <div class="column-header">
+            <div class="column-title">⚠️ Needs Revision / Flagged <span class="count-badge" id="badgeRejected">0</span></div>
+          </div>
+          <div id="colRejected" style="display: flex; flex-direction: column; gap: 12px;"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 2: AGENT DEBATES -->
+    <div id="tab-debates" class="tab-content">
+      <div class="debate-container">
+        <h2 style="font-family: var(--font-heading); margin-bottom: 16px;">Multi-Agent Consensus & Debate Transcripts</h2>
+        <div id="debatesList"></div>
+      </div>
+    </div>
+
+    <!-- TAB 3: TEAM LEADERBOARD -->
+    <div id="tab-interns" class="tab-content">
+      <div class="table-card">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+          <h2 style="font-family: var(--font-heading);">Intern Performance Leaderboard (Transparent Shared Dashboard)</h2>
+          <button class="btn btn-primary" onclick="openCreateInternModal()">+ Add New Intern</button>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>Intern Username</th>
+              <th>Role</th>
+              <th>Tasks Completed</th>
+              <th>Pending Workload</th>
+              <th>Verification Pass Rate</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="internsTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- TAB 4: SEO ANALYTICS -->
+    <div id="tab-analytics" class="tab-content">
+      <div class="table-card">
+        <h2 style="font-family: var(--font-heading); margin-bottom: 16px;">Search Keyword Rank Movements & Outcomes</h2>
+        <canvas id="rankChart" style="max-height: 400px;"></canvas>
+      </div>
+    </div>
+  </main>
+
+  <!-- FAB and Chat Drawer for Intern AI Assistant -->
+  <button class="chat-fab" onclick="toggleChatWidget()">💬</button>
+  <div class="chat-widget" id="chatWidget">
+    <div class="chat-header">
+      <span>AI Task Assistant (Shared RAG Memory)</span>
+      <button style="background: none; border: none; color: #fff; cursor: pointer;" onclick="toggleChatWidget()">✕</button>
+    </div>
+    <div class="chat-body" id="chatBody">
+      <div class="chat-bubble bubble-ai">
+        Hello! I am your AI Task Assistant. Ask me anything about your assigned backlink tasks or why a submission was rejected!
+      </div>
+    </div>
+    <div class="chat-footer">
+      <input type="text" class="form-control" id="chatInput" placeholder="Ask AI how to complete your task..." onkeydown="if(event.key==='Enter') sendChatMessage()">
+      <button class="btn btn-primary btn-sm" onclick="sendChatMessage()">Send</button>
+    </div>
+  </div>
+
+  <!-- Submit Proof Modal -->
+  <div class="modal-backdrop" id="modalSubmit">
+    <div class="modal-box">
+      <h3 style="font-family: var(--font-heading); margin-bottom: 16px;" id="modalSubmitTitle">Submit Task Proof Link</h3>
+      <input type="hidden" id="modalTaskId">
+      <div class="form-group">
+        <label class="form-label">Published Live URL / Backlink Proof Link</label>
+        <input type="url" class="form-control" id="modalProofUrl" placeholder="https://techcrunch.com/2026/guest-post-aeo">
+      </div>
+      <div style="display: flex; gap: 12px; justify-content: flex-end; margin-top: 24px;">
+        <button class="btn btn-secondary" onclick="closeModal('modalSubmit')">Cancel</button>
+        <button class="btn btn-primary" onclick="submitTaskProof()">Submit to Verification Agent</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Login Modal -->
+  <div class="modal-backdrop" id="modalLogin">
+    <div class="modal-box">
+      <h3 style="font-family: var(--font-heading); margin-bottom: 16px;">Log In to kenerateai.com</h3>
+      <div class="form-group">
+        <label class="form-label">Username or Email</label>
+        <input type="text" class="form-control" id="loginUsername" placeholder="dev@kenerateai.com or alex_intern">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Password</label>
+        <input type="password" class="form-control" id="loginPassword" value="admin123">
+      </div>
+      <div style="display: flex; gap: 12px; justify-content: flex-end; margin-top: 24px;">
+        <button class="btn btn-secondary" onclick="closeModal('modalLogin')">Cancel</button>
+        <button class="btn btn-primary" onclick="performLogin()">Log In</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add Intern Modal -->
+  <div class="modal-backdrop" id="modalAddIntern">
+    <div class="modal-box">
+      <h3 style="font-family: var(--font-heading); margin-bottom: 16px;">Onboard New Intern</h3>
+      <div class="form-group">
+        <label class="form-label">Username</label>
+        <input type="text" class="form-control" id="internUsername" placeholder="jordan_intern">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Email</label>
+        <input type="email" class="form-control" id="internEmail" placeholder="jordan@kenerateai.com">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Initial Password</label>
+        <input type="password" class="form-control" id="internPassword" value="intern123">
+      </div>
+      <div style="display: flex; gap: 12px; justify-content: flex-end; margin-top: 24px;">
+        <button class="btn btn-secondary" onclick="closeModal('modalAddIntern')">Cancel</button>
+        <button class="btn btn-primary" onclick="performAddIntern()">Add Intern Account</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let currentAuthToken = localStorage.getItem('token') || '';
+    let currentUser = JSON.parse(localStorage.getItem('user') || '{"username":"Guest","role":"dev"}');
+    let agentChatInterval = null;
+    let notifInterval = null;
+    let taskInterval = null;
+    let rankChartInstance = null;
+
+    // ─── AUTH UI ─────────────────────────────────────────────────────────────
+    function updateAuthUI() {
+      document.getElementById('usernameDisplay').innerText = currentUser.username || 'Guest';
+      const badge = document.getElementById('roleBadge');
+      badge.innerText = (currentUser.role || 'dev').toUpperCase();
+      badge.className = 'user-role-badge ' + (currentUser.role === 'dev' ? 'role-dev' : 'role-intern');
+      if (currentAuthToken) startPolling();
+    }
+
+    // ─── TAB SWITCHING ───────────────────────────────────────────────────────
+    function switchTab(tabId) {
+      document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+      event.target.classList.add('active');
+      document.getElementById('tab-' + tabId).classList.add('active');
+      if (tabId === 'kanban')   fetchTasks();
+      if (tabId === 'debates')  fetchDebates();
+      if (tabId === 'interns')  fetchInterns();
+      if (tabId === 'analytics') fetchAnalytics();
+    }
+
+    // ─── TASKS ───────────────────────────────────────────────────────────────
+    async function fetchTasks() {
+      try {
+        const res = await fetch('/api/tasks');
+        if (!res.ok) throw new Error('tasks fetch failed');
+        const tasks = await res.json();
+
+        const colAssigned  = document.getElementById('colAssigned');
+        const colSubmitted = document.getElementById('colSubmitted');
+        const colVerified  = document.getElementById('colVerified');
+        const colRejected  = document.getElementById('colRejected');
+
+        colAssigned.innerHTML = '';
+        colSubmitted.innerHTML = '';
+        colVerified.innerHTML = '';
+        colRejected.innerHTML = '';
+
+        let cA = 0, cS = 0, cV = 0, cR = 0;
+
+        (tasks || []).forEach(t => {
+          const angleClass = (t.angle || 'seo').toLowerCase();
+          const rankBadge = t.rank_current > 0
+            ? `<span style="font-size:11px;color:var(--emerald);">📍 Rank #${t.rank_current}</span>`
+            : '';
+          const proofLine = t.submitted_proof_url
+            ? `<div style="font-size:11px;color:var(--cyan);margin-bottom:4px;word-break:break-all;">🔗 ${t.submitted_proof_url}</div>` : '';
+          const notesLine = t.verification_notes
+            ? `<div style="font-size:11px;color:var(--rose);margin-bottom:4px;">📝 ${t.verification_notes}</div>` : '';
+          const submitBtn = (t.status === 'assigned' || t.status === 'in_progress')
+            ? `<button class="btn btn-primary btn-sm" onclick="openSubmitModal(${t.id}, '${(t.keyword||'').replace(/'/g,"\\'")}')">Submit Proof</button>` : '';
+
+          const card = `
+            <div class="task-card">
+              <div class="task-meta">
+                <span class="angle-tag angle-${angleClass}">${t.angle || 'SEO'}</span>
+                <span style="font-size:11px;color:var(--text-muted);">Task #${t.id}</span>
+                ${rankBadge}
+              </div>
+              <div class="task-title">${t.title || t.keyword || 'Untitled Task'}</div>
+              <div class="task-details">Keyword: <b>${t.keyword}</b></div>
+              <div class="task-details">Target: <b>${t.backlink_target}</b></div>
+              ${proofLine}${notesLine}
+              <div class="task-assignee">
+                <span>👤 ${t.assigned_intern_name || 'Unassigned'}</span>
+                ${submitBtn}
+              </div>
+            </div>`;
+
+          if (['assigned','ready','in_progress'].includes(t.status)) { colAssigned.innerHTML += card; cA++; }
+          else if (t.status === 'submitted')  { colSubmitted.innerHTML += card; cS++; }
+          else if (t.status === 'verified')   { colVerified.innerHTML += card;  cV++; }
+          else                                { colRejected.innerHTML += card;  cR++; }
+        });
+
+        document.getElementById('badgeAssigned').innerText  = cA;
+        document.getElementById('badgeSubmitted').innerText = cS;
+        document.getElementById('badgeVerified').innerText  = cV;
+        document.getElementById('badgeRejected').innerText  = cR;
+
+        const vcEl = document.getElementById('verifiedCount');
+        const pcEl = document.getElementById('pendingCount');
+        if (vcEl) vcEl.innerText = cV + ' verified';
+        if (pcEl) pcEl.innerText = cA + cS + ' pending';
+
+        // empty state
+        if (cA === 0) colAssigned.innerHTML  = '<div style="color:var(--text-muted);font-size:13px;text-align:center;padding:20px;">No active tasks yet. Trigger an Agent Debate to create one.</div>';
+        if (cS === 0) colSubmitted.innerHTML = '<div style="color:var(--text-muted);font-size:13px;text-align:center;padding:20px;">No submissions awaiting verification.</div>';
+        if (cV === 0) colVerified.innerHTML  = '<div style="color:var(--text-muted);font-size:13px;text-align:center;padding:20px;">No verified tasks yet.</div>';
+        if (cR === 0) colRejected.innerHTML  = '<div style="color:var(--text-muted);font-size:13px;text-align:center;padding:20px;">No rejected / flagged tasks.</div>';
+
+      } catch(e) { console.error('fetchTasks:', e); }
+    }
+
+    // ─── AGENT DEBATES ───────────────────────────────────────────────────────
+    async function fetchDebates() {
+      try {
+        const res = await fetch('/api/debates');
+        if (!res.ok) throw new Error('debates fetch failed');
+        const debates = await res.json();
+        const container = document.getElementById('debatesList');
+        container.innerHTML = '';
+
+        if (!debates || debates.length === 0) {
+          container.innerHTML = '<div style="color:var(--text-muted);text-align:center;padding:40px;">No debates yet — trigger one from the header button!</div>';
+          return;
+        }
+
+        debates.forEach(d => {
+          let transcript = [];
+          try { transcript = JSON.parse(d.debate_transcript || '[]'); } catch(e){}
+
+          const transcriptHtml = transcript.map(m => `
+            <div class="debate-msg">
+              <div class="msg-avatar">${m.avatar || '🤖'}</div>
+              <div class="msg-body">
+                <div class="msg-header">
+                  <span class="msg-agent">${m.agent_name}</span>
+                  <span class="msg-role">Round ${m.round} · ${m.agent_role}</span>
+                  <span style="font-size:10px;color:var(--text-muted);">[${m.decision || ''}]</span>
+                </div>
+                <div class="msg-text">${m.message}</div>
+              </div>
+            </div>`).join('');
+
+          const statusColor = d.status === 'consensus' ? 'var(--emerald)' : 'var(--rose)';
+          container.innerHTML += `
+            <div style="background:rgba(255,255,255,0.03);border:1px solid var(--border-color);border-radius:12px;padding:18px;margin-bottom:20px;">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+                <h3 style="font-size:16px;color:var(--cyan);">Debate #${d.id} — "${d.keyword}" → ${d.backlink_target}</h3>
+                <span style="font-size:12px;font-weight:700;color:${statusColor};text-transform:uppercase;">${d.status}</span>
+              </div>
+              <div style="font-size:12px;color:var(--text-muted);margin-bottom:14px;">📋 ${d.final_decision}</div>
+              ${transcriptHtml}
+            </div>`;
+        });
+      } catch(e) { console.error('fetchDebates:', e); }
+    }
+
+    // ─── INTERNS ─────────────────────────────────────────────────────────────
+    async function fetchInterns() {
+      try {
+        const res = await fetch('/api/interns');
+        if (!res.ok) throw new Error('interns fetch failed');
+        const interns = await res.json();
+        const tbody = document.getElementById('internsTableBody');
+        tbody.innerHTML = '';
+
+        if (!interns || interns.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-muted);">No interns yet — add one using the button above.</td></tr>';
+          return;
+        }
+
+        interns.forEach(i => {
+          const rate = typeof i.verification_rate === 'number' ? i.verification_rate.toFixed(1) : '100.0';
+          const rateColor = parseFloat(rate) >= 80 ? 'var(--emerald)' : parseFloat(rate) >= 60 ? 'var(--amber)' : 'var(--rose)';
+          tbody.innerHTML += `
+            <tr>
+              <td style="font-weight:700;">👤 ${i.username}</td>
+              <td><span class="user-role-badge role-intern">INTERN</span></td>
+              <td style="color:var(--emerald);font-weight:700;">${i.tasks_completed}</td>
+              <td style="color:var(--amber);font-weight:700;">${i.tasks_pending}</td>
+              <td style="color:${rateColor};font-weight:700;">${rate}%</td>
+              <td>
+                <button class="btn btn-secondary btn-sm" onclick="removeIntern(${i.id}, '${i.username}')">Remove</button>
+              </td>
+            </tr>`;
+        });
+      } catch(e) { console.error('fetchInterns:', e); }
+    }
+
+    async function removeIntern(id, username) {
+      if (!confirm('Remove intern ' + username + '? This cannot be undone.')) return;
+      try {
+        const res = await fetch('/api/interns/' + id, {
+          method: 'DELETE',
+          headers: { 'Authorization': 'Bearer ' + currentAuthToken }
+        });
+        if (res.ok) { fetchInterns(); }
+        else { alert('Failed to remove intern. Make sure you are logged in as Dev.'); }
+      } catch(e) { alert('Error removing intern'); }
+    }
+
+    // ─── ANALYTICS ───────────────────────────────────────────────────────────
+    async function fetchAnalytics() {
+      try {
+        const res = await fetch('/api/analytics');
+        const data = await res.json();
+
+        // Update metric cards with live data
+        const vcEl = document.getElementById('verifiedCount');
+        const pcEl = document.getElementById('pendingCount');
+        if (vcEl) vcEl.innerHTML = data.verified_tasks + ' <span class="metric-sub">verified</span>';
+        if (pcEl) pcEl.innerHTML = data.pending_tasks + ' <span class="metric-sub">pending</span>';
+
+        // RAG Stats
+        fetchRagStats();
+
+        // Render rank chart from real data
+        renderAnalyticsChart(data);
+      } catch(e) { console.error('fetchAnalytics:', e); renderAnalyticsChart(null); }
+    }
+
+    async function fetchRagStats() {
+      try {
+        const res = await fetch('/api/rag/stats');
+        const data = await res.json();
+        const el = document.getElementById('ragStatsPanel');
+        if (!el) return;
+        const cats = data.category_counts || {};
+        const catHtml = Object.entries(cats).map(([k, v]) =>
+          `<span style="margin-right:12px;"><b style="color:var(--cyan);">${v}</b> ${k}</span>`
+        ).join('') || '<span style="color:var(--text-muted);">Empty — trigger a debate to fill the RAG memory</span>';
+        el.innerHTML = `
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+            <span style="color:var(--emerald);font-weight:700;">✅ RAG Active</span>
+            <span style="color:var(--text-muted);font-size:12px;">· ${data.total_chunks} chunks · ${data.store_type}</span>
+            <span style="color:var(--text-muted);font-size:12px;margin-left:8px;">${catHtml}</span>
+          </div>`;
+      } catch(e) {
+        const el = document.getElementById('ragStatsPanel');
+        if (el) el.innerHTML = '<span style="color:var(--rose);">RAG status unavailable</span>';
+      }
+    }
+
+    function renderAnalyticsChart(analyticsData) {
+      const ctx = document.getElementById('rankChart').getContext('2d');
+      if (rankChartInstance) { rankChartInstance.destroy(); }
+
+      let labels, posData;
+      const rh = analyticsData && analyticsData.rank_history;
+      if (rh && rh.length > 0) {
+        const sorted = [...rh].sort((a,b) => new Date(a.checked_at) - new Date(b.checked_at));
+        labels = sorted.map(r => r.keyword.substring(0, 18));
+        posData = sorted.map(r => r.rank_position);
+      } else {
+        labels = ['Week 1', 'Week 2', 'Week 3', 'Week 4', 'Week 5', 'Current'];
+        posData = [28, 22, 16, 11, 7, 3];
+      }
+
+      rankChartInstance = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels,
+          datasets: [{
+            label: 'Search Position (#, lower = better)',
+            data: posData,
+            borderColor: '#6366f1',
+            backgroundColor: 'rgba(99,102,241,0.12)',
+            fill: true,
+            tension: 0.4,
+            pointBackgroundColor: '#06b6d4',
+            pointRadius: 5
+          }]
+        },
+        options: {
+          responsive: true,
+          plugins: {
+            legend: { labels: { color: '#9ca3af' } },
+            tooltip: { backgroundColor: 'rgba(9,13,22,0.95)', titleColor: '#f3f4f6', bodyColor: '#9ca3af' }
+          },
+          scales: {
+            x: { ticks: { color: '#9ca3af' }, grid: { color: 'rgba(255,255,255,0.05)' } },
+            y: { reverse: true, ticks: { color: '#9ca3af' }, grid: { color: 'rgba(255,255,255,0.05)' },
+                 title: { display: true, text: 'Search Rank Position', color: '#6b7280' } }
+          }
+        }
+      });
+    }
+
+    // ─── AGENT CHAT LIVE FEED ────────────────────────────────────────────────
+    async function fetchAgentFeed() {
+      try {
+        const res = await fetch('/api/agent-chat');
+        if (!res.ok) return;
+        const msgs = await res.json();
+        const el = document.getElementById('agentFeedPanel');
+        if (!el) return;
+        if (!msgs || msgs.length === 0) {
+          el.innerHTML = '<div style="color:var(--text-muted);font-size:13px;text-align:center;padding:20px;">Waiting for agent activity... Trigger a debate to start.</div>';
+          return;
+        }
+        const latest = msgs.slice(-15).reverse();
+        el.innerHTML = latest.map(m => `
+          <div style="display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.04);">
+            <span style="font-size:20px;flex-shrink:0;">${m.avatar || '🤖'}</span>
+            <div>
+              <div style="font-size:11px;color:var(--cyan);font-weight:600;">${m.sender} <span style="color:var(--text-muted);">[${m.role}]</span></div>
+              <div style="font-size:12px;color:var(--text-main);margin-top:2px;">${m.message}</div>
+            </div>
+          </div>`).join('');
+      } catch(e) {}
+    }
+
+    // ─── NOTIFICATIONS ───────────────────────────────────────────────────────
+    async function fetchNotifications() {
+      if (!currentAuthToken) return;
+      try {
+        const res = await fetch('/api/notifications', {
+          headers: { 'Authorization': 'Bearer ' + currentAuthToken }
+        });
+        if (!res.ok) return;
+        const notifs = await res.json();
+        const unread = (notifs || []).filter(n => !n.read).length;
+        const badge = document.getElementById('notifBadge');
+        if (badge) {
+          badge.innerText = unread > 0 ? unread : '';
+          badge.style.display = unread > 0 ? 'flex' : 'none';
+        }
+        // Render panel
+        const panel = document.getElementById('notifPanel');
+        if (!panel) return;
+        if (!notifs || notifs.length === 0) {
+          panel.innerHTML = '<div style="color:var(--text-muted);font-size:13px;text-align:center;padding:16px;">No notifications yet.</div>';
+          return;
+        }
+        panel.innerHTML = notifs.slice(0, 10).map(n => `
+          <div style="padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.05);opacity:${n.read?0.5:1};">
+            <div style="font-size:12px;font-weight:600;color:${n.read?'var(--text-muted)':'var(--text-main)'};">${n.title}</div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${n.message}</div>
+          </div>`).join('');
+      } catch(e) {}
+    }
+
+    function toggleNotifPanel() {
+      const el = document.getElementById('notifDropdown');
+      if (!el) return;
+      const isOpen = el.style.display === 'block';
+      el.style.display = isOpen ? 'none' : 'block';
+      if (!isOpen) fetchNotifications();
+    }
+
+    // ─── TRIGGER DEBATE ──────────────────────────────────────────────────────
+    async function triggerAutonomousCycle() {
+      const btn = event.target;
+      btn.disabled = true;
+      btn.innerText = '⏳ Running Debate...';
+      try {
+        const res = await fetch('/api/debates/trigger?niche=technology', {
+          method: 'POST',
+          headers: { 'Authorization': 'Bearer ' + currentAuthToken }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          btn.innerText = '✅ Debate Done!';
+          setTimeout(() => { btn.innerText = '⚡ Trigger Agent Debate'; btn.disabled = false; }, 3000);
+          fetchTasks();
+          fetchAgentFeed();
+          fetchRagStats();
+          alert('Multi-Agent Debate completed!\n\nKeyword: ' + (data.debate?.keyword || 'N/A') + '\nTarget: ' + (data.debate?.backlink_target || 'N/A') + '\nAngle: ' + (data.debate?.angle || 'N/A') + '\nTask assigned to: ' + (data.task?.assigned_intern_name || 'Unassigned'));
+        } else {
+          const err = await res.json();
+          btn.innerText = '⚡ Trigger Agent Debate';
+          btn.disabled = false;
+          alert('Error: ' + (err.error || 'Unknown error — check you are logged in as Dev'));
+        }
+      } catch(e) {
+        btn.innerText = '⚡ Trigger Agent Debate';
+        btn.disabled = false;
+        alert('Failed to trigger debate: ' + e.message);
+      }
+    }
+
+    // ─── SUBMIT PROOF ────────────────────────────────────────────────────────
+    function openSubmitModal(id, keyword) {
+      document.getElementById('modalTaskId').value = id;
+      document.getElementById('modalSubmitTitle').innerText = 'Submit Proof for Task #' + id + ' (' + keyword + ')';
+      document.getElementById('modalProofUrl').value = '';
+      document.getElementById('modalSubmit').classList.add('active');
+    }
+
+    async function submitTaskProof() {
+      const id = document.getElementById('modalTaskId').value;
+      const proofUrl = document.getElementById('modalProofUrl').value;
+      if (!proofUrl) return alert('Proof URL is required');
+      if (!proofUrl.startsWith('http')) return alert('Please enter a valid URL starting with http:// or https://');
+
+      const btn = document.querySelector('#modalSubmit .btn-primary');
+      btn.disabled = true; btn.innerText = 'Verifying...';
+      try {
+        const res = await fetch('/api/tasks/' + id + '/submit', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + currentAuthToken },
+          body: JSON.stringify({ proof_url: proofUrl })
+        });
+        const data = await res.json();
+        closeModal('modalSubmit');
+        alert('Verification Agent Result: ' + (data.is_verified ? 'VERIFIED ✅' : 'REJECTED ⚠️') + '\n\nNotes: ' + data.notes);
+        fetchTasks();
+        fetchNotifications();
+      } catch(e) { alert('Submit error: ' + e.message); }
+      finally { btn.disabled = false; btn.innerText = 'Submit to Verification Agent'; }
+    }
+
+    // ─── AUTH ────────────────────────────────────────────────────────────────
+    function openLoginModal() { document.getElementById('modalLogin').classList.add('active'); }
+    function openCreateInternModal() {
+      if (!currentAuthToken) return alert('Please log in as Dev first');
+      document.getElementById('modalAddIntern').classList.add('active');
+    }
+    function closeModal(id) { document.getElementById(id).classList.remove('active'); }
+
+    async function performLogin() {
+      const u = document.getElementById('loginUsername').value.trim();
+      const p = document.getElementById('loginPassword').value;
+      if (!u) return alert('Enter username or email');
+      try {
+        const res = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: u, password: p })
+        });
+        if (res.ok) {
+          const data = await res.json();
+          currentAuthToken = data.token;
+          currentUser = data.user;
+          localStorage.setItem('token', currentAuthToken);
+          localStorage.setItem('user', JSON.stringify(currentUser));
+          updateAuthUI();
+          closeModal('modalLogin');
+          fetchTasks(); fetchInterns(); fetchNotifications();
+          // Seed RAG from DB after login
+          fetch('/api/rag/seed', { method: 'POST', headers: { 'Authorization': 'Bearer ' + currentAuthToken } })
+            .then(() => fetchRagStats());
+        } else {
+          const err = await res.json();
+          alert('Login failed: ' + (err.error || 'Invalid credentials'));
+        }
+      } catch(e) { alert('Login error: ' + e.message); }
+    }
+
+    async function performAddIntern() {
+      const u = document.getElementById('internUsername').value.trim();
+      const e = document.getElementById('internEmail').value.trim();
+      const p = document.getElementById('internPassword').value;
+      if (!u || !e) return alert('Username and Email are required');
+      try {
+        const res = await fetch('/api/interns', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + currentAuthToken },
+          body: JSON.stringify({ username: u, email: e, password: p })
+        });
+        if (res.ok) { closeModal('modalAddIntern'); fetchInterns(); }
+        else { const err = await res.json(); alert('Failed to create intern: ' + (err.error || 'Unknown')); }
+      } catch(e) { alert('Error: ' + e.message); }
+    }
+
+    // ─── CHAT WIDGET ─────────────────────────────────────────────────────────
+    function toggleChatWidget() {
+      const chat = document.getElementById('chatWidget');
+      chat.classList.toggle('active');
+    }
+
+    async function sendChatMessage() {
+      const input = document.getElementById('chatInput');
+      const text = input.value.trim();
+      if (!text) return;
+      if (!currentAuthToken) return alert('Please log in first to use AI Chat');
+
+      const body = document.getElementById('chatBody');
+      body.innerHTML += '<div class="chat-bubble bubble-user">' + text + '</div>';
+      const typing = '<div class="chat-bubble bubble-ai" id="typingIndicator">⏳ Thinking...</div>';
+      body.innerHTML += typing;
+      body.scrollTop = body.scrollHeight;
+      input.value = '';
+
+      try {
+        const res = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + currentAuthToken },
+          body: JSON.stringify({ task_id: 0, message: text })
+        });
+        const data = await res.json();
+        document.getElementById('typingIndicator')?.remove();
+        body.innerHTML += '<div class="chat-bubble bubble-ai">' + (data.answer || data.error || 'No response') + '</div>';
+      } catch(e) {
+        document.getElementById('typingIndicator')?.remove();
+        body.innerHTML += '<div class="chat-bubble bubble-ai">Error: ' + e.message + '</div>';
+      }
+      body.scrollTop = body.scrollHeight;
+    }
+
+    // ─── POLLING ─────────────────────────────────────────────────────────────
+    function startPolling() {
+      if (agentChatInterval) clearInterval(agentChatInterval);
+      if (notifInterval)     clearInterval(notifInterval);
+      if (taskInterval)      clearInterval(taskInterval);
+      fetchAgentFeed();
+      fetchNotifications();
+      fetchRagStats();
+      agentChatInterval = setInterval(fetchAgentFeed, 5000);
+      notifInterval     = setInterval(fetchNotifications, 10000);
+      taskInterval      = setInterval(fetchTasks, 15000);
+    }
+
+    // ─── INIT ─────────────────────────────────────────────────────────────────
+    updateAuthUI();
+    fetchTasks();
+    fetchAgentFeed();
+    fetchRagStats();
+    // Auto-open login if no token stored
+    if (!currentAuthToken) {
+      setTimeout(() => document.getElementById('modalLogin').classList.add('active'), 800);
+    } else {
+      startPolling();
+      fetch('/api/rag/seed', { method: 'POST', headers: { 'Authorization': 'Bearer ' + currentAuthToken } })
+        .then(() => fetchRagStats()).catch(() => {});
+    }
+  </script>
+</body>
+</html>
+

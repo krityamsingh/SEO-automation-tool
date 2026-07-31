@@ -14,10 +14,11 @@ import (
 )
 
 type GeminiClient struct {
-	client      *genai.Client
-	textModel   *genai.GenerativeModel
-	imageModel  *genai.GenerativeModel
-	apiKey      string
+	client        *genai.Client
+	textModel     *genai.GenerativeModel
+	textModelName string
+	imageModel    *genai.GenerativeModel
+	apiKey        string
 }
 
 func NewGeminiClient(apiKey, textModel, imageModel string) (*GeminiClient, error) {
@@ -28,8 +29,9 @@ func NewGeminiClient(apiKey, textModel, imageModel string) (*GeminiClient, error
 	}
 
 	gc := &GeminiClient{
-		client:     client,
-		apiKey:     apiKey,
+		client:        client,
+		apiKey:        apiKey,
+		textModelName: textModel,
 	}
 
 	if textModel != "" {
@@ -50,7 +52,10 @@ func (c *GeminiClient) GenerateText(ctx context.Context, prompt string, temperat
 		return "", fmt.Errorf("text model not configured")
 	}
 
-	modelName := strings.TrimPrefix(c.textModel.Name, "models/")
+	modelName := c.textModelName
+	if modelName == "" {
+		modelName = "gemini-1.5-flash"
+	}
 	model := c.client.GenerativeModel(modelName)
 	model.SetTemperature(temperature)
 	model.SetMaxOutputTokens(maxTokens)
@@ -98,20 +103,24 @@ func (c *GeminiClient) GenerateStructured(ctx context.Context, prompt string, sc
 		return nil, fmt.Errorf("text model not configured")
 	}
 
-	modelName := strings.TrimPrefix(c.textModel.Name, "models/")
+	modelName := c.textModelName
+	if modelName == "" {
+		modelName = "gemini-1.5-flash"
+	}
 	model := c.client.GenerativeModel(modelName)
 	model.SetTemperature(0.2)
 	model.SetMaxOutputTokens(4096)
-	model.ResponseMIMEType = "application/json"
 
-	resp, err := model.GenerateContent(ctx, genai.Text(prompt))
+	// Instruct model to respond as JSON via prompt prefix
+	jsonPrompt := "Respond ONLY with valid JSON, no markdown or explanation.\n" + prompt
+	resp, err := model.GenerateContent(ctx, genai.Text(jsonPrompt))
 	if err != nil {
 		return nil, fmt.Errorf("gemini structured generation failed: %w", err)
 	}
 
 	text := c.extractText(resp)
 	var result map[string]interface{}
-	if err := json.Unmarshal([]byte(text), &result); err != nil {
+	if err := json.Unmarshal([]byte(util.ExtractJSON(text)), &result); err != nil {
 		return nil, fmt.Errorf("failed to parse JSON: %w", err)
 	}
 	return result, nil
@@ -320,19 +329,7 @@ func (c *GeminiClient) Close() {
 	}
 }
 
-func (c *GeminiClient) GetKeyStatuses() []genai.KeyStatus {
-	if c.client == nil {
-		return nil
-	}
-	return c.client.GetKeyStatuses()
-}
 
-func (c *GeminiClient) SelectKey(index int) error {
-	if c.client == nil {
-		return fmt.Errorf("gemini client not initialized")
-	}
-	return c.client.SelectKey(index)
-}
 
 func (c *GeminiClient) extractText(resp *genai.GenerateContentResponse) string {
 	if resp == nil {

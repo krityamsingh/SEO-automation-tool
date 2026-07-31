@@ -59,8 +59,8 @@ func Load() *Config {
 
 	cfg := &Config{
 		GeminiAPIKey:      getAPIKey(),
-		GeminiTextModel:   getDefault("GEMINI_TEXT_MODEL", "gemini-flash-latest"),
-		GeminiImageModel:  getDefault("GEMINI_IMAGE_MODEL", "gemini-2.5-flash-image"),
+		GeminiTextModel:   getDefault("GEMINI_TEXT_MODEL", "gemini-1.5-flash"),
+		GeminiImageModel:  getDefault("GEMINI_IMAGE_MODEL", "gemini-2.0-flash-exp"),
 		AgentNiches:       split(getDefault("AGENT_NICHES", "technology,saas,ai")),
 		AgentCycleHours:   parseDuration(getDefault("AGENT_CYCLE_HOURS", "6")) * time.Hour,
 		ContentAutoPublish: parseBool(getDefault("CONTENT_AUTO_PUBLISH", "false")),
@@ -105,10 +105,30 @@ func getAPIKey() string {
 	if raw == "" {
 		panic("required env var missing: GEMINI_API_KEY or GEMINI_API_KEYS")
 	}
-	if decoded, err := base64.StdEncoding.DecodeString(raw); err == nil && len(decoded) > 0 && (strings.Contains(string(decoded), ",") || strings.HasPrefix(string(decoded), "sk-") || strings.HasPrefix(string(decoded), "AIza")) {
-		return string(decoded)
+
+	decodedStr := raw
+	if decoded, err := base64.StdEncoding.DecodeString(raw); err == nil && len(decoded) > 0 {
+		decodedStr = string(decoded)
 	}
-	return raw
+
+	parts := strings.Split(decodedStr, ",")
+	var validKeys []string
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if strings.HasPrefix(p, "AIzaSy") {
+			validKeys = append(validKeys, p)
+		}
+	}
+
+	if len(validKeys) > 0 {
+		slog.Info("config: loaded valid Gemini API key from pool", "count", len(validKeys), "prefix", validKeys[0][:8])
+		return validKeys[0]
+	}
+
+	if len(parts) > 0 && strings.TrimSpace(parts[0]) != "" {
+		return strings.TrimSpace(parts[0])
+	}
+	return strings.TrimSpace(decodedStr)
 }
 
 func getDefault(key, def string) string {

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"aeo_geo_seo_agent/internal/aeo"
+	"aeo_geo_seo_agent/internal/agent"
 	"aeo_geo_seo_agent/internal/ai"
 	"aeo_geo_seo_agent/internal/api"
 	"aeo_geo_seo_agent/internal/config"
@@ -17,9 +18,11 @@ import (
 	"aeo_geo_seo_agent/internal/database"
 	"aeo_geo_seo_agent/internal/geo"
 	"aeo_geo_seo_agent/internal/publisher"
+	"aeo_geo_seo_agent/internal/rag"
 	"aeo_geo_seo_agent/internal/scheduler"
 	"aeo_geo_seo_agent/internal/scriptwriter"
 	"aeo_geo_seo_agent/internal/seo"
+	"aeo_geo_seo_agent/internal/task"
 )
 
 func main() {
@@ -33,7 +36,6 @@ func main() {
 		os.Exit(1)
 	}
 	if cfg.GeminiAPIKey == "" {
-		// This is already handled by require(), but add a clear log
 		slog.Error("GEMINI_API_KEY is required")
 	}
 
@@ -42,7 +44,7 @@ func main() {
 		Level: cfg.LogLevel,
 	})))
 
-	slog.Info("starting agent", "version", "1.0.0", "cycle_hours", cfg.AgentCycleHours)
+	slog.Info("starting kenerateai.com agent platform", "version", "2.0.0", "cycle_hours", cfg.AgentCycleHours)
 
 	// Database
 	db, err := database.Connect(cfg.DatabaseURL)
@@ -65,6 +67,13 @@ func main() {
 	// Crawler
 	crawl := crawler.New(cfg.UserAgent, cfg.CrawlDelay)
 
+	// Shared System-Wide RAG Engine
+	ragEngine := rag.New(crawl)
+
+	// Multi-Agent System & Task Engine
+	agentSys := agent.NewAgentSystem(db, gemini, crawl, ragEngine)
+	taskEng := task.NewTaskEngine(db, gemini, crawl, ragEngine)
+
 	// SEO Engine
 	seoEngine := seo.New(gemini, crawl, db)
 
@@ -83,10 +92,10 @@ func main() {
 	writer := scriptwriter.New(gemini, db)
 
 	// Scheduler
-	sched := scheduler.New(cfg, gemini, crawl, seoEngine, writer, aeoEngine, geoEngine, publishers, db)
+	sched := scheduler.New(cfg, gemini, crawl, seoEngine, writer, aeoEngine, geoEngine, publishers, db, agentSys, taskEng)
 
 	// API Server
-	apiServer := api.New(db, sched, gemini, cfg)
+	apiServer := api.New(db, sched, gemini, cfg, crawl, ragEngine, agentSys, taskEng)
 	go func() {
 		if err := apiServer.Start(":" + cfg.Port); err != nil && err != http.ErrServerClosed {
 			slog.Error("api server error", "error", err)
@@ -100,7 +109,7 @@ func main() {
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 
-	slog.Info("agent running", "port", cfg.Port, "cycle", cfg.AgentCycleHours)
+	slog.Info("kenerateai.com platform running", "port", cfg.Port, "cycle", cfg.AgentCycleHours)
 	<-sig
 
 	slog.Info("shutting down gracefully")

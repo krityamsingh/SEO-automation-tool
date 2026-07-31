@@ -21,6 +21,7 @@ import (
 	"aeo_geo_seo_agent/internal/rag"
 	"aeo_geo_seo_agent/internal/scriptwriter"
 	"aeo_geo_seo_agent/internal/seo"
+	"aeo_geo_seo_agent/internal/task"
 )
 
 type Scheduler struct {
@@ -36,30 +37,34 @@ type Scheduler struct {
 	publishers    *publisher.PublisherRegistry
 	rag           *rag.RAGEngine
 	multiAgent    *agent.MultiAgentOrchestrator
+	agentSystem   *agent.AgentSystem
+	taskEngine    *task.TaskEngine
 	ctx           context.Context
 	cancel        context.CancelFunc
 }
 
-func New(cfg *config.Config, gemini *ai.GeminiClient, crawler *crawler.Crawler, seoEngine *seo.Engine, writer *scriptwriter.Writer, aeoEngine *aeo.Engine, geoEngine *geo.Engine, publishers *publisher.PublisherRegistry, db *gorm.DB) *Scheduler {
+func New(cfg *config.Config, gemini *ai.GeminiClient, crawler *crawler.Crawler, seoEngine *seo.Engine, writer *scriptwriter.Writer, aeoEngine *aeo.Engine, geoEngine *geo.Engine, publishers *publisher.PublisherRegistry, db *gorm.DB, agentSys *agent.AgentSystem, taskEng *task.TaskEngine) *Scheduler {
 	ctx, cancel := context.WithCancel(context.Background())
 	ragEngine := rag.New(crawler)
 	multiAgent := agent.NewMultiAgentOrchestrator(gemini, ragEngine)
 
 	return &Scheduler{
-		cron:       cron.New(),
-		cfg:        cfg,
-		gemini:     gemini,
-		crawler:    crawler,
-		seo:        seoEngine,
-		writer:     writer,
-		aeo:        aeoEngine,
-		geo:        geoEngine,
-		publishers: publishers,
-		rag:        ragEngine,
-		multiAgent: multiAgent,
-		db:         db,
-		ctx:        ctx,
-		cancel:     cancel,
+		cron:        cron.New(),
+		cfg:         cfg,
+		gemini:      gemini,
+		crawler:     crawler,
+		seo:         seoEngine,
+		writer:      writer,
+		aeo:         aeoEngine,
+		geo:         geoEngine,
+		publishers:  publishers,
+		rag:         ragEngine,
+		multiAgent:  multiAgent,
+		agentSystem: agentSys,
+		taskEngine:  taskEng,
+		db:          db,
+		ctx:         ctx,
+		cancel:      cancel,
 	}
 }
 
@@ -103,6 +108,9 @@ func (s *Scheduler) runCycle() {
 		return
 	}
 
+	// Multi-Agent AI System: Research -> Debate -> Consensus -> Task Dispatch -> Auto-Assign
+	s.phaseMultiAgentDebateAndDispatch()
+
 	// Phase 1: Keyword Research
 	s.phaseKeywordResearch()
 	
@@ -125,6 +133,30 @@ func (s *Scheduler) runCycle() {
 	
 	slog.Info("agent cycle completed")
 	database.LogAgentActivity(s.db, "cycle_complete", "success", "full cycle finished")
+}
+
+func (s *Scheduler) phaseMultiAgentDebateAndDispatch() {
+	slog.Info("phase: multi-agent debate & task dispatch")
+	database.LogAgentActivity(s.db, "multi_agent_debate", "running", "starting multi-agent research & debate loop")
+
+	for _, niche := range s.cfg.AgentNiches {
+		if s.agentSystem != nil && s.taskEngine != nil {
+			debate, err := s.agentSystem.RunMultiAgentDebate(s.ctx, niche)
+			if err != nil {
+				slog.Error("multi-agent debate failed", "niche", niche, "error", err)
+				continue
+			}
+
+			if debate.Consensus {
+				taskRecord, err := s.taskEngine.DispatchAndAssignTask(s.ctx, debate)
+				if err != nil {
+					slog.Error("task dispatch failed", "error", err)
+				} else {
+					slog.Info("task dispatched and assigned to intern", "task_id", taskRecord.ID, "intern", taskRecord.AssignedInternName)
+				}
+			}
+		}
+	}
 }
 
 func (s *Scheduler) phaseKeywordResearch() {
