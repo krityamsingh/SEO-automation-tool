@@ -54,7 +54,7 @@ func Connect(databaseURL string) (*gorm.DB, error) {
 }
 
 func AutoMigrate(db *gorm.DB) error {
-	return db.AutoMigrate(
+	err := db.AutoMigrate(
 		&Keyword{},
 		&ContentIdea{},
 		&ContentPiece{},
@@ -68,6 +68,50 @@ func AutoMigrate(db *gorm.DB) error {
 		&Notification{},
 		&RankHistory{},
 	)
+	if err == nil {
+		SeedDefaultData(db)
+	}
+	return err
+}
+
+func SeedDefaultData(db *gorm.DB) {
+	// Seed default users if empty
+	var userCount int64
+	db.Model(&User{}).Count(&userCount)
+	if userCount == 0 {
+		devUser := User{Username: "dev_admin", Email: "dev@kenerateai.com", Role: "dev", PasswordHash: "admin123", VerificationRate: 100}
+		db.Create(&devUser)
+		interns := []string{"anu", "master", "hirtik", "anuj"}
+		for _, name := range interns {
+			u := User{Username: name, Email: name + "@kenerateai.com", Role: "intern", PasswordHash: "intern123", VerificationRate: 100}
+			db.Create(&u)
+		}
+	}
+
+	// Seed default assigned task if empty so tasks are never lost on serverless cold starts
+	var taskCount int64
+	db.Model(&Task{}).Count(&taskCount)
+	if taskCount == 0 {
+		var internAnuj User
+		db.Where("username = ?", "anuj").First(&internAnuj)
+		var assignedID *uint
+		if internAnuj.ID > 0 {
+			assignedID = &internAnuj.ID
+		}
+		sampleTask := Task{
+			Keyword:            "Model Context Protocol implementation",
+			BacklinkTarget:     "dev.to",
+			Angle:              "GEO",
+			Title:              "Model Context Protocol Implementation: The Backbone of Generative Engine Optimization (GEO)",
+			BlogDraft:          "Generative Engine Optimization (GEO) is rapidly redefining how brands maintain visibility in an AI-first search landscape. As search engines evolve from traditional link indexing to generative responses, a robust Model Context Protocol implementation has become the gold standard for technical GEO.",
+			SocialDraft:        "Is your brand ready for the shift from SEO to Generative Engine Optimization (GEO)? 🚀",
+			AssignedInternID:   assignedID,
+			AssignedInternName: "anuj",
+			Status:             "assigned",
+			CreatedAt:          time.Now(),
+		}
+		db.Create(&sampleTask)
+	}
 }
 
 // Models

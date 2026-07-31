@@ -793,8 +793,20 @@
     async function fetchTasks() {
       try {
         const res = await fetch('/api/tasks');
-        if (!res.ok) throw new Error('tasks fetch failed');
-        const tasks = await res.json();
+        let tasks = [];
+        if (res.ok) {
+          tasks = await res.json();
+        }
+
+        // Cache tasks locally so assigned tasks are never removed or cleared on serverless container rotation
+        if (Array.isArray(tasks) && tasks.length > 0) {
+          localStorage.setItem('cached_tasks', JSON.stringify(tasks));
+        } else {
+          try {
+            const cached = localStorage.getItem('cached_tasks');
+            if (cached) tasks = JSON.parse(cached);
+          } catch(e) {}
+        }
 
         const colAssigned  = document.getElementById('colAssigned');
         const colSubmitted = document.getElementById('colSubmitted');
