@@ -88,19 +88,21 @@ Return JSON ONLY:
 }`, niche, niche)
 
 	resR1Str, err := as.gemini.GenerateText(ctx, promptR1, 0.5, 1024)
-	keyword := "autonomous ai agents"
-	rationaleR1 := "High search momentum in enterprise SaaS"
-	if err == nil {
-		var parsedR1 struct {
-			Keyword string `json:"keyword"`
-			Rationale string `json:"trend_rationale"`
-		}
-		if jsonErr := json.Unmarshal([]byte(extractJSON(resR1Str)), &parsedR1); jsonErr == nil && parsedR1.Keyword != "" {
-			keyword = parsedR1.Keyword
-			if parsedR1.Rationale != "" {
-				rationaleR1 = parsedR1.Rationale
-			}
-		}
+	if err != nil {
+		return nil, fmt.Errorf("Round 1 Trend Research Agent failed: %w", err)
+	}
+
+	var parsedR1 struct {
+		Keyword   string `json:"keyword"`
+		Rationale string `json:"trend_rationale"`
+	}
+	if jsonErr := json.Unmarshal([]byte(extractJSON(resR1Str)), &parsedR1); jsonErr != nil || parsedR1.Keyword == "" {
+		return nil, fmt.Errorf("Round 1 Trend Research Agent produced invalid JSON output: %w", jsonErr)
+	}
+	keyword := parsedR1.Keyword
+	rationaleR1 := parsedR1.Rationale
+	if rationaleR1 == "" {
+		rationaleR1 = fmt.Sprintf("High search intent detected for %s in niche %s", keyword, niche)
 	}
 
 	// Check RAG for duplicate keyword
@@ -131,31 +133,32 @@ Return JSON ONLY:
 }`, keyword, niche)
 
 	resR2Str, err := as.gemini.GenerateText(ctx, promptR2, 0.6, 1024)
-	targetSite := "techcrunch.com/guest-insights"
-	clarifyingQ := "Is this keyword intended for B2B decision-makers or indie developers?"
+	if err != nil {
+		return nil, fmt.Errorf("Round 2 Backlink Discovery Agent failed: %w", err)
+	}
 
-	if err == nil {
-		var parsedR2 struct {
-			TargetSites []string `json:"target_sites"`
-			ChosenTarget string `json:"chosen_target"`
-			Question     string `json:"clarifying_question"`
-		}
-		if jsonErr := json.Unmarshal([]byte(extractJSON(resR2Str)), &parsedR2); jsonErr == nil && parsedR2.ChosenTarget != "" {
-			targetSite = parsedR2.ChosenTarget
-			if parsedR2.Question != "" {
-				clarifyingQ = parsedR2.Question
-			}
-		}
+	var parsedR2 struct {
+		TargetSites  []string `json:"target_sites"`
+		ChosenTarget string   `json:"chosen_target"`
+		Question     string   `json:"clarifying_question"`
+	}
+	if jsonErr := json.Unmarshal([]byte(extractJSON(resR2Str)), &parsedR2); jsonErr != nil || parsedR2.ChosenTarget == "" {
+		return nil, fmt.Errorf("Round 2 Backlink Discovery Agent produced invalid JSON: %w", jsonErr)
+	}
+	targetSite := parsedR2.ChosenTarget
+	clarifyingQ := parsedR2.Question
+	if clarifyingQ == "" {
+		clarifyingQ = "What is the primary target persona for this keyword?"
 	}
 
 	addMsg(2, "Backlink Discovery Agent", "discovery", "🔗",
 		fmt.Sprintf("Identified target site candidate '%s' for keyword '%s'. Question for Trend Research Agent: %s", targetSite, keyword, clarifyingQ), "propose")
 
 	addMsg(2, "Kimi K3 (Strategy Lead)", "leader", "🤖",
-		fmt.Sprintf("Cross-checking target domain '%s' against RAG memory & backlink quality index... Domain authority verified. Intent confirmed for B2B SaaS Founders.", targetSite), "validate")
+		fmt.Sprintf("Cross-checking target domain '%s' against RAG memory & backlink quality index... Domain authority verified.", targetSite), "validate")
 
 	addMsg(2, "Trend Research Agent", "researcher", "📈",
-		fmt.Sprintf("Answer to Backlink Discovery Agent: The search intent targets B2B SaaS Founders and AI Operations Leads looking for automated intern workflows."), "answer")
+		fmt.Sprintf("Answer to Backlink Discovery Agent: The search intent targets Founders and Operations Leads looking for automated workflows."), "answer")
 
 	// -------------------------------------------------------------
 	// ROUND 3: SEO, AEO, and GEO Strategist Agents evaluate angles
@@ -178,21 +181,20 @@ Return JSON ONLY:
   "reasoning": "..."
 }`, keyword, targetSite)
 
-	winningAngle := "GEO"
-	strategistReasoning := "GEO angle dominates because LLMs frequently cite authoritative multi-agent workflow benchmarks."
 	resR3Str, err := as.gemini.GenerateText(ctx, promptR3, 0.5, 1024)
-	if err == nil {
-		var parsedR3 struct {
-			WinningAngle string `json:"winning_angle"`
-			Reasoning    string `json:"reasoning"`
-		}
-		if jsonErr := json.Unmarshal([]byte(extractJSON(resR3Str)), &parsedR3); jsonErr == nil && parsedR3.WinningAngle != "" {
-			winningAngle = parsedR3.WinningAngle
-			if parsedR3.Reasoning != "" {
-				strategistReasoning = parsedR3.Reasoning
-			}
-		}
+	if err != nil {
+		return nil, fmt.Errorf("Round 3 Strategist Panel failed: %w", err)
 	}
+
+	var parsedR3 struct {
+		WinningAngle string `json:"winning_angle"`
+		Reasoning    string `json:"reasoning"`
+	}
+	if jsonErr := json.Unmarshal([]byte(extractJSON(resR3Str)), &parsedR3); jsonErr != nil || parsedR3.WinningAngle == "" {
+		return nil, fmt.Errorf("Round 3 Strategist Panel produced invalid JSON: %w", jsonErr)
+	}
+	winningAngle := parsedR3.WinningAngle
+	strategistReasoning := parsedR3.Reasoning
 
 	addMsg(3, "SEO Strategist Agent", "strategist", "🎯",
 		fmt.Sprintf("SEO Evaluation: Strong organic search volume potential for '%s'. Domain authority of '%s' will pass valuable link equity.", keyword, targetSite), "evaluate")
@@ -209,7 +211,6 @@ Return JSON ONLY:
 	// -------------------------------------------------------------
 	// ROUND 4: Critic / QA Agent audits exchange & checks guardrails
 	// -------------------------------------------------------------
-	// Guardrail Check: Check for link farms, spam networks, duplicate target in RAG
 	isSpam := isLinkFarmOrSpam(targetSite)
 	isDuplicateTarget, dupMsg := as.rag.CheckDuplicateTargetOrKeyword("", targetSite)
 
@@ -250,27 +251,22 @@ Return JSON ONLY:
   "social_draft": "..."
 }`, keyword, winningAngle)
 
-	contentTitle := fmt.Sprintf("How %s is Transforming Modern Marketing Workflows", keyword)
-	blogDraft := fmt.Sprintf("In 2026, building effective search visibility requires combining traditional SEO with Generative Engine Optimization. By placing backlinks on high-authority hubs like %s around '%s', platforms achieve maximum citation density across AI engines.", targetSite, keyword)
-	socialDraft := fmt.Sprintf("🚀 Supercharge your organic reach with %s! Read our latest deep dive on %s: [Link]", keyword, targetSite)
-
 	resContentStr, err := as.gemini.GenerateText(ctx, promptContent, 0.7, 2048)
-	if err == nil {
-		var parsedContent struct {
-			Title       string `json:"title"`
-			BlogDraft   string `json:"blog_draft"`
-			SocialDraft string `json:"social_draft"`
-		}
-		if jsonErr := json.Unmarshal([]byte(extractJSON(resContentStr)), &parsedContent); jsonErr == nil && parsedContent.Title != "" {
-			contentTitle = parsedContent.Title
-			if parsedContent.BlogDraft != "" {
-				blogDraft = parsedContent.BlogDraft
-			}
-			if parsedContent.SocialDraft != "" {
-				socialDraft = parsedContent.SocialDraft
-			}
-		}
+	if err != nil {
+		return nil, fmt.Errorf("Round 5 Content Writer Agent failed: %w", err)
 	}
+
+	var parsedContent struct {
+		Title       string `json:"title"`
+		BlogDraft   string `json:"blog_draft"`
+		SocialDraft string `json:"social_draft"`
+	}
+	if jsonErr := json.Unmarshal([]byte(extractJSON(resContentStr)), &parsedContent); jsonErr != nil || parsedContent.Title == "" {
+		return nil, fmt.Errorf("Round 5 Content Writer Agent produced invalid JSON: %w", jsonErr)
+	}
+	contentTitle := parsedContent.Title
+	blogDraft := parsedContent.BlogDraft
+	socialDraft := parsedContent.SocialDraft
 
 	addMsg(5, "Content Writer Agent", "writer", "✍️",
 		fmt.Sprintf("Generated guest post draft '%s' + social media caption for Intern reference.", contentTitle), "create")

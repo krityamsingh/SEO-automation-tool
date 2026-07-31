@@ -103,8 +103,8 @@ func getAPIKey() string {
 		raw = os.Getenv("GEMINI_API_KEY")
 	}
 	if raw == "" {
-		slog.Warn("config: GEMINI_API_KEY missing, using fallback key for serverless initialization")
-		return "AIzaSy_Fallback_Key_For_Vercel_Demo"
+		slog.Error("config: GEMINI_API_KEY / GEMINI_API_KEYS not set — AI features will not work")
+		return ""
 	}
 
 	decodedStr := raw

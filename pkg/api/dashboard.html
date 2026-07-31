@@ -1024,8 +1024,10 @@
         labels = sorted.map(r => r.keyword.substring(0, 18));
         posData = sorted.map(r => r.rank_position);
       } else {
-        labels = ['Week 1', 'Week 2', 'Week 3', 'Week 4', 'Week 5', 'Current'];
-        posData = [28, 22, 16, 11, 7, 3];
+        // No real data yet — show empty state
+        const chartContainer = document.getElementById('rankChart').parentElement;
+        chartContainer.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:200px;color:var(--text-muted);font-size:14px;text-align:center;"><div>📊 No ranking data yet<br><span style="font-size:12px;opacity:0.7;">Trigger a debate → assign to intern → submit proof to see real rank tracking</span></div></div>';
+        return;
       }
 
       rankChartInstance = new Chart(ctx, {
