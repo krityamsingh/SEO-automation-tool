@@ -7,7 +7,6 @@
 *.dylib
 
 # Environment variables
-.env
 *.env.local
 
 # Database

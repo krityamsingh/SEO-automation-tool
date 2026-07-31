@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/base64"
 	"fmt"
 	"log/slog"
 	"os"
@@ -97,13 +98,17 @@ func require(key string) string {
 }
 
 func getAPIKey() string {
-	if keys := os.Getenv("GEMINI_API_KEYS"); keys != "" {
-		return keys
+	raw := os.Getenv("GEMINI_API_KEYS")
+	if raw == "" {
+		raw = os.Getenv("GEMINI_API_KEY")
 	}
-	if key := os.Getenv("GEMINI_API_KEY"); key != "" {
-		return key
+	if raw == "" {
+		panic("required env var missing: GEMINI_API_KEY or GEMINI_API_KEYS")
 	}
-	panic("required env var missing: GEMINI_API_KEY or GEMINI_API_KEYS")
+	if decoded, err := base64.StdEncoding.DecodeString(raw); err == nil && len(decoded) > 0 && (strings.Contains(string(decoded), ",") || strings.HasPrefix(string(decoded), "sk-") || strings.HasPrefix(string(decoded), "AIza")) {
+		return string(decoded)
+	}
+	return raw
 }
 
 func getDefault(key, def string) string {
