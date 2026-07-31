@@ -67,3 +67,11 @@ func SafeTruncate(s string, maxLen int) string {
 	}
 	return s
 }
+
+// SliceLimit returns at most limit elements from a string slice.
+func SliceLimit(slice []string, limit int) []string {
+	if len(slice) > limit {
+		return slice[:limit]
+	}
+	return slice
+}

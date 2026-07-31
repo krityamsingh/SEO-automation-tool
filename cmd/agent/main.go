@@ -35,9 +35,6 @@ func main() {
 		slog.Error("config validation failed", "error", err)
 		os.Exit(1)
 	}
-	if cfg.GeminiAPIKey == "" {
-		slog.Error("GEMINI_API_KEY is required")
-	}
 
 	// Setup logger
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
@@ -57,12 +54,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	// AI Client
-	gemini, err := ai.NewGeminiClient(cfg.GeminiAPIKey, cfg.GeminiTextModel, cfg.GeminiImageModel)
-	if err != nil {
-		slog.Error("gemini client failed", "error", err)
-		os.Exit(1)
-	}
+	// AI Client with multi-provider failover (Gemini, Kimi, MiniMax)
+	gemini := ai.NewGeminiClientMulti(cfg.GeminiAPIKeys, cfg.KimiAPIKeys, cfg.MiniMaxAPIKeys, cfg.GeminiTextModel, cfg.GeminiImageModel)
 
 	// Crawler
 	crawl := crawler.New(cfg.UserAgent, cfg.CrawlDelay)

@@ -59,7 +59,7 @@ func initializeServer() {
 	}
 	_ = database.AutoMigrate(db)
 
-	gemini, _ := ai.NewGeminiClient(cfg.GeminiAPIKey, cfg.GeminiTextModel, cfg.GeminiImageModel)
+	gemini := ai.NewGeminiClientMulti(cfg.GeminiAPIKeys, cfg.KimiAPIKeys, cfg.MiniMaxAPIKeys, cfg.GeminiTextModel, cfg.GeminiImageModel)
 	crawl := crawler.New(cfg.UserAgent, cfg.CrawlDelay)
 	ragEngine := rag.New(crawl)
 	agentSys := agent.NewAgentSystem(db, gemini, crawl, ragEngine)

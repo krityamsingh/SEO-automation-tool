@@ -14,6 +14,7 @@ import (
 	"aeo_geo_seo_agent/pkg/crawler"
 	"aeo_geo_seo_agent/pkg/database"
 	"aeo_geo_seo_agent/pkg/rag"
+	"aeo_geo_seo_agent/pkg/util"
 )
 
 type DebateMessage struct {
@@ -59,6 +60,16 @@ func NewAgentSystem(db *gorm.DB, gemini *ai.GeminiClient, cr *crawler.Crawler, r
 func (as *AgentSystem) RunMultiAgentDebate(ctx context.Context, niche string) (*DebateResult, error) {
 	slog.Info("MULTI-AGENT DEBATE: starting autonomous research & debate loop", "niche", niche)
 
+	// Kimi K3 Deep Search & Web Scraping Step: Live Niche Scraping & RAG Analysis
+	scrapingTargetURL := fmt.Sprintf("https://news.google.com/search?q=%s", strings.ReplaceAll(niche, " ", "+"))
+	scrapedData, scrapeErr := as.crawler.GetPage(scrapingTargetURL)
+	scrapedSummary := ""
+	if scrapeErr == nil && scrapedData != nil {
+		entities := as.crawler.ExtractEntities(scrapedData.Text)
+		scrapedSummary = fmt.Sprintf("Live Scraped Page Title: '%s'. Extracted Entities: %s.", scrapedData.Title, strings.Join(util.SliceLimit(entities, 10), ", "))
+	}
+	ragContext := as.rag.RetrieveContext(niche, 5)
+
 	transcript := make([]DebateMessage, 0)
 	addMsg := func(round int, name, role, avatar, msg, decision string) DebateMessage {
 		dm := DebateMessage{
@@ -75,19 +86,25 @@ func (as *AgentSystem) RunMultiAgentDebate(ctx context.Context, niche string) (*
 		return dm
 	}
 
+	addMsg(1, "Kimi K3 (Strategy Lead)", "leader", "🤖",
+		fmt.Sprintf("Initiating Max-Power DeepSearch & Web Scraping for niche '%s'. %s Deep RAG vectors active.", niche, scrapedSummary), "directive")
+
 	// -------------------------------------------------------------
-	// ROUND 1: Trend Research Agent proposes a trending keyword
+	// ROUND 1: Trend Research Agent & Kimi propose an autonomous trending keyword
 	// -------------------------------------------------------------
-	promptR1 := fmt.Sprintf(`[ROLE: Trend Research Agent for kenerateai.com]
+	promptR1 := fmt.Sprintf(`[ROLE: Kimi K3 Leader & Trend Research Agent]
 Target Niche: %s
-Find 1 high-intent, trending keyword relevant to %s.
+Scraped Web Insights: %s
+RAG Memory: %s
+
+Autonomous Task: Find 1 fresh, high-intent, trending keyword relevant to %s.
 Return JSON ONLY:
 {
   "keyword": "...",
   "trend_rationale": "..."
-}`, niche, niche)
+}`, niche, scrapedSummary, ragContext, niche)
 
-	resR1Str, err := as.gemini.GenerateText(ctx, promptR1, 0.5, 1024)
+	resR1Str, err := as.gemini.GenerateTextWithProvider(ctx, "kimi", promptR1, 0.5, 1024)
 	if err != nil {
 		return nil, fmt.Errorf("Round 1 Trend Research Agent failed: %w", err)
 	}
@@ -108,11 +125,8 @@ Return JSON ONLY:
 	// Check RAG for duplicate keyword
 	if isDup, dupReason := as.rag.CheckDuplicateTargetOrKeyword(keyword, ""); isDup {
 		slog.Warn("MULTI-AGENT DEBATE: duplicate keyword detected by RAG check", "keyword", keyword, "reason", dupReason)
-		keyword = fmt.Sprintf("%s automation 2026", keyword)
+		keyword = fmt.Sprintf("%s automation %d", keyword, time.Now().Year())
 	}
-
-	addMsg(1, "Kimi K3 (Strategy Lead)", "leader", "🤖",
-		fmt.Sprintf("Initiating multi-agent debate cycle for niche '%s'. Deep RAG context initialized. Requesting high-intent keyword candidates from Trend Research Agent.", niche), "directive")
 
 	addMsg(1, "Trend Research Agent", "researcher", "📈",
 		fmt.Sprintf("I propose target keyword '%s' for niche '%s'. Rationale: %s", keyword, niche, rationaleR1), "propose")
@@ -123,6 +137,8 @@ Return JSON ONLY:
 	promptR2 := fmt.Sprintf(`[ROLE: Backlink Discovery Agent & Kimi Strategy Lead]
 Keyword: "%s"
 Niche: "%s"
+Live Scraping Context: %s
+
 Identify 2 legitimate candidate websites (blogs, tech magazines, forums, communities) suitable for placing a high-quality backlink for kenerateai.com.
 Also frame 1 clarifying question for Trend Research Agent regarding search intent.
 Return JSON ONLY:
@@ -130,9 +146,9 @@ Return JSON ONLY:
   "target_sites": ["site1.com", "site2.org"],
   "chosen_target": "site1.com",
   "clarifying_question": "..."
-}`, keyword, niche)
+}`, keyword, niche, scrapedSummary)
 
-	resR2Str, err := as.gemini.GenerateText(ctx, promptR2, 0.6, 1024)
+	resR2Str, err := as.gemini.GenerateTextWithProvider(ctx, "kimi", promptR2, 0.6, 1024)
 	if err != nil {
 		return nil, fmt.Errorf("Round 2 Backlink Discovery Agent failed: %w", err)
 	}
@@ -181,7 +197,7 @@ Return JSON ONLY:
   "reasoning": "..."
 }`, keyword, targetSite)
 
-	resR3Str, err := as.gemini.GenerateText(ctx, promptR3, 0.5, 1024)
+	resR3Str, err := as.gemini.GenerateTextWithProvider(ctx, "minimax", promptR3, 0.5, 1024)
 	if err != nil {
 		return nil, fmt.Errorf("Round 3 Strategist Panel failed: %w", err)
 	}
@@ -251,7 +267,7 @@ Return JSON ONLY:
   "social_draft": "..."
 }`, keyword, winningAngle)
 
-	resContentStr, err := as.gemini.GenerateText(ctx, promptContent, 0.7, 2048)
+	resContentStr, err := as.gemini.GenerateTextWithProvider(ctx, "gemini", promptContent, 0.7, 2048)
 	if err != nil {
 		return nil, fmt.Errorf("Round 5 Content Writer Agent failed: %w", err)
 	}

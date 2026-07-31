@@ -13,10 +13,15 @@ import (
 )
 
 type Config struct {
-	// AI
-	GeminiAPIKey      string
-	GeminiTextModel   string
-	GeminiImageModel  string
+	// AI Provider Pools
+	GeminiAPIKey     string
+	GeminiAPIKeys    []string
+	KimiAPIKey       string
+	KimiAPIKeys      []string
+	MiniMaxAPIKey    string
+	MiniMaxAPIKeys   []string
+	GeminiTextModel  string
+	GeminiImageModel string
 
 	// Agent Behavior
 	AgentNiches        []string
@@ -26,13 +31,13 @@ type Config struct {
 	ContentMaxWords    int
 
 	// Publishing
-	WordPressURL          string
-	WordPressUsername     string
-	WordPressAppPassword  string
+	WordPressURL           string
+	WordPressUsername      string
+	WordPressAppPassword   string
 	MediumIntegrationToken string
-	GhostURL              string
-	GhostAdminAPIKey      string
-	WebhookURL            string
+	GhostURL               string
+	GhostAdminAPIKey       string
+	WebhookURL             string
 
 	// Database
 	DatabaseURL string
@@ -42,11 +47,11 @@ type Config struct {
 	DailyGeminiLimit  int
 
 	// Crawler
-	UserAgent   string
-	CrawlDelay  time.Duration
+	UserAgent    string
+	CrawlDelay   time.Duration
 	CrawlTimeout time.Duration
-	MaxDepth    int
-	MaxPages    int
+	MaxDepth     int
+	MaxPages     int
 
 	// Server
 	Port     string
@@ -57,33 +62,51 @@ type Config struct {
 func Load() *Config {
 	_ = godotenv.Load()
 
+	geminiPool, kimiPool, minimaxPool := parseAPIKeyPools()
+
+	var primaryGemini, primaryKimi, primaryMiniMax string
+	if len(geminiPool) > 0 {
+		primaryGemini = geminiPool[0]
+	}
+	if len(kimiPool) > 0 {
+		primaryKimi = kimiPool[0]
+	}
+	if len(minimaxPool) > 0 {
+		primaryMiniMax = minimaxPool[0]
+	}
+
 	cfg := &Config{
-		GeminiAPIKey:      getAPIKey(),
-		GeminiTextModel:   getDefault("GEMINI_TEXT_MODEL", "gemini-1.5-flash"),
-		GeminiImageModel:  getDefault("GEMINI_IMAGE_MODEL", "gemini-2.0-flash-exp"),
-		AgentNiches:       split(getDefault("AGENT_NICHES", "technology,saas,ai")),
-		AgentCycleHours:   parseDuration(getDefault("AGENT_CYCLE_HOURS", "6")) * time.Hour,
-		ContentAutoPublish: parseBool(getDefault("CONTENT_AUTO_PUBLISH", "false")),
-		ContentMinWords:   parseInt(getDefault("CONTENT_MIN_WORDS", "1500")),
-		ContentMaxWords:   parseInt(getDefault("CONTENT_MAX_WORDS", "3000")),
-		WordPressURL:      os.Getenv("WORDPRESS_URL"),
-		WordPressUsername: os.Getenv("WORDPRESS_USERNAME"),
-		WordPressAppPassword: os.Getenv("WORDPRESS_APP_PASSWORD"),
+		GeminiAPIKey:           primaryGemini,
+		GeminiAPIKeys:          geminiPool,
+		KimiAPIKey:             primaryKimi,
+		KimiAPIKeys:            kimiPool,
+		MiniMaxAPIKey:          primaryMiniMax,
+		MiniMaxAPIKeys:         minimaxPool,
+		GeminiTextModel:        getDefault("GEMINI_TEXT_MODEL", "gemini-1.5-flash"),
+		GeminiImageModel:       getDefault("GEMINI_IMAGE_MODEL", "gemini-2.0-flash-exp"),
+		AgentNiches:            split(getDefault("AGENT_NICHES", "technology,saas,ai")),
+		AgentCycleHours:        parseDuration(getDefault("AGENT_CYCLE_HOURS", "6")) * time.Hour,
+		ContentAutoPublish:     parseBool(getDefault("CONTENT_AUTO_PUBLISH", "false")),
+		ContentMinWords:        parseInt(getDefault("CONTENT_MIN_WORDS", "1500")),
+		ContentMaxWords:        parseInt(getDefault("CONTENT_MAX_WORDS", "3000")),
+		WordPressURL:           os.Getenv("WORDPRESS_URL"),
+		WordPressUsername:      os.Getenv("WORDPRESS_USERNAME"),
+		WordPressAppPassword:   os.Getenv("WORDPRESS_APP_PASSWORD"),
 		MediumIntegrationToken: os.Getenv("MEDIUM_INTEGRATION_TOKEN"),
-		GhostURL:          os.Getenv("GHOST_URL"),
-		GhostAdminAPIKey:  os.Getenv("GHOST_ADMIN_API_KEY"),
-		WebhookURL:        os.Getenv("WEBHOOK_URL"),
-		DatabaseURL:       getDefault("DATABASE_URL", "sqlite://agent.db"),
-		DailyContentLimit: parseInt(getDefault("DAILY_CONTENT_LIMIT", "5")),
-		DailyGeminiLimit:  parseInt(getDefault("DAILY_GEMINI_LIMIT", "200")),
-		UserAgent:         getDefault("USER_AGENT", "AEOAgent/1.0"),
-		CrawlDelay:        parseDuration(getDefault("CRAWL_DELAY", "1")) * time.Second,
-		CrawlTimeout:      parseDuration(getDefault("CRAWL_TIMEOUT", "30")) * time.Second,
-		MaxDepth:          parseInt(getDefault("MAX_DEPTH", "3")),
-		MaxPages:          parseInt(getDefault("MAX_PAGES", "100")),
-		Port:              getDefault("PORT", "8080"),
-		LogLevel:          parseLevel(getDefault("LOG_LEVEL", "info")),
-		APIKey:            os.Getenv("API_KEY"),
+		GhostURL:               os.Getenv("GHOST_URL"),
+		GhostAdminAPIKey:       os.Getenv("GHOST_ADMIN_API_KEY"),
+		WebhookURL:             os.Getenv("WEBHOOK_URL"),
+		DatabaseURL:            getDefault("DATABASE_URL", "sqlite://agent.db"),
+		DailyContentLimit:      parseInt(getDefault("DAILY_CONTENT_LIMIT", "5")),
+		DailyGeminiLimit:       parseInt(getDefault("DAILY_GEMINI_LIMIT", "200")),
+		UserAgent:              getDefault("USER_AGENT", "AEOAgent/1.0"),
+		CrawlDelay:             parseDuration(getDefault("CRAWL_DELAY", "1")) * time.Second,
+		CrawlTimeout:           parseDuration(getDefault("CRAWL_TIMEOUT", "30")) * time.Second,
+		MaxDepth:               parseInt(getDefault("MAX_DEPTH", "3")),
+		MaxPages:               parseInt(getDefault("MAX_PAGES", "100")),
+		Port:                   getDefault("PORT", "8080"),
+		LogLevel:               parseLevel(getDefault("LOG_LEVEL", "info")),
+		APIKey:                 os.Getenv("API_KEY"),
 	}
 
 	return cfg
@@ -97,39 +120,64 @@ func require(key string) string {
 	return v
 }
 
-func getAPIKey() string {
-	raw := os.Getenv("GEMINI_API_KEYS")
-	if raw == "" {
-		raw = os.Getenv("GEMINI_API_KEY")
-	}
-	if raw == "" {
-		slog.Error("config: GEMINI_API_KEY / GEMINI_API_KEYS not set — AI features will not work")
-		return ""
-	}
-
-	decodedStr := raw
-	if decoded, err := base64.StdEncoding.DecodeString(raw); err == nil && len(decoded) > 0 {
-		decodedStr = string(decoded)
+func parseAPIKeyPools() (gemini []string, kimi []string, minimax []string) {
+	// Raw string sources
+	sources := []string{
+		os.Getenv("GEMINI_API_KEYS"),
+		os.Getenv("GEMINI_API_KEY"),
+		os.Getenv("KIMI_API_KEY"),
+		os.Getenv("KIMI_API_KEYS"),
+		os.Getenv("MOONSHOT_API_KEY"),
+		os.Getenv("MINIMAX_API_KEY"),
+		os.Getenv("MINIMAX_API_KEYS"),
+		os.Getenv("OPENAI_API_KEY"),
 	}
 
-	parts := strings.Split(decodedStr, ",")
-	var validKeys []string
-	for _, p := range parts {
-		p = strings.TrimSpace(p)
-		if strings.HasPrefix(p, "AIzaSy") {
-			validKeys = append(validKeys, p)
+	seen := make(map[string]bool)
+
+	addKey := func(k string) {
+		k = strings.TrimSpace(k)
+		if k == "" || seen[k] {
+			return
+		}
+		seen[k] = true
+
+		if strings.HasPrefix(k, "AIzaSy") {
+			gemini = append(gemini, k)
+		} else if strings.HasPrefix(k, "sk-api-") {
+			minimax = append(minimax, k)
+		} else if strings.HasPrefix(k, "sk-") || strings.HasPrefix(k, "AQ.") || strings.HasPrefix(k, "moonshot-") || strings.HasPrefix(k, "kimi-") {
+			kimi = append(kimi, k)
+		} else {
+			// Default unknown key to Gemini pool if unclassified
+			gemini = append(gemini, k)
 		}
 	}
 
-	if len(validKeys) > 0 {
-		slog.Info("config: loaded valid Gemini API key from pool", "count", len(validKeys), "prefix", validKeys[0][:8])
-		return validKeys[0]
+	for _, raw := range sources {
+		if raw == "" {
+			continue
+		}
+
+		// Try base64 decoding first
+		decodedStr := raw
+		if decoded, err := base64.StdEncoding.DecodeString(raw); err == nil && len(decoded) > 0 {
+			decodedStr = string(decoded)
+		}
+
+		parts := strings.Split(decodedStr, ",")
+		for _, p := range parts {
+			addKey(p)
+		}
 	}
 
-	if len(parts) > 0 && strings.TrimSpace(parts[0]) != "" {
-		return strings.TrimSpace(parts[0])
-	}
-	return strings.TrimSpace(decodedStr)
+	slog.Info("config: loaded multi-provider API key pools",
+		"gemini_keys", len(gemini),
+		"kimi_keys", len(kimi),
+		"minimax_keys", len(minimax),
+	)
+
+	return gemini, kimi, minimax
 }
 
 func getDefault(key, def string) string {
@@ -183,8 +231,8 @@ func parseLevel(s string) *slog.LevelVar {
 }
 
 func (c *Config) Validate() error {
-	if c.GeminiAPIKey == "" {
-		return fmt.Errorf("GEMINI_API_KEY is required")
+	if len(c.GeminiAPIKeys) == 0 && len(c.KimiAPIKeys) == 0 && len(c.MiniMaxAPIKeys) == 0 && c.GeminiAPIKey == "" {
+		return fmt.Errorf("at least one valid AI API key (Gemini, Kimi, or MiniMax) is required")
 	}
 	if c.AgentCycleHours <= 0 {
 		return fmt.Errorf("AGENT_CYCLE_HOURS must be positive")

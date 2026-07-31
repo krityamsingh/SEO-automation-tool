@@ -1,125 +1,463 @@
 package ai
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
+	"net/http"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/google/generative-ai-go/genai"
 	"google.golang.org/api/option"
 
+	"aeo_geo_seo_agent/pkg/config"
 	"aeo_geo_seo_agent/pkg/util"
 )
 
 type GeminiClient struct {
-	client        *genai.Client
-	textModel     *genai.GenerativeModel
-	textModelName string
-	imageModel    *genai.GenerativeModel
-	apiKey        string
+	geminiKeys     []string
+	kimiKeys       []string
+	minimaxKeys    []string
+	geminiIdx      int
+	kimiIdx        int
+	minimaxIdx     int
+	mu             sync.Mutex
+	httpClient     *http.Client
+	textModelName  string
+	imageModelName string
 }
 
 func NewGeminiClient(apiKey, textModel, imageModel string) (*GeminiClient, error) {
-	ctx := context.Background()
-	client, err := genai.NewClient(ctx, option.WithAPIKey(apiKey))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create Gemini client: %w", err)
+	cfg := config.Load()
+	geminiKeys := cfg.GeminiAPIKeys
+	kimiKeys := cfg.KimiAPIKeys
+	minimaxKeys := cfg.MiniMaxAPIKeys
+
+	if apiKey != "" {
+		g, k, m := parseKeysFromString(apiKey)
+		geminiKeys = appendUnique(geminiKeys, g...)
+		kimiKeys = appendUnique(kimiKeys, k...)
+		minimaxKeys = appendUnique(minimaxKeys, m...)
+	}
+
+	if textModel == "" {
+		textModel = cfg.GeminiTextModel
+	}
+	if textModel == "" {
+		textModel = "gemini-1.5-flash"
+	}
+	if imageModel == "" {
+		imageModel = cfg.GeminiImageModel
+	}
+	if imageModel == "" {
+		imageModel = "gemini-2.0-flash-exp"
 	}
 
 	gc := &GeminiClient{
-		client:        client,
-		apiKey:        apiKey,
-		textModelName: textModel,
+		geminiKeys:     geminiKeys,
+		kimiKeys:       kimiKeys,
+		minimaxKeys:    minimaxKeys,
+		textModelName:  textModel,
+		imageModelName: imageModel,
+		httpClient:     &http.Client{Timeout: 60 * time.Second},
 	}
 
-	if textModel != "" {
-		gc.textModel = client.GenerativeModel(textModel)
-		gc.textModel.SetTemperature(0.7)
-		gc.textModel.SetMaxOutputTokens(8192)
-	}
-
-	if imageModel != "" {
-		gc.imageModel = client.GenerativeModel(imageModel)
-	}
+	slog.Info("ai: GeminiClient initialized with multi-provider key pools",
+		"gemini_keys_count", len(geminiKeys),
+		"kimi_keys_count", len(kimiKeys),
+		"minimax_keys_count", len(minimaxKeys),
+	)
 
 	return gc, nil
 }
 
+func NewGeminiClientMulti(geminiKeys, kimiKeys, minimaxKeys []string, textModel, imageModel string) *GeminiClient {
+	if textModel == "" {
+		textModel = "gemini-1.5-flash"
+	}
+	if imageModel == "" {
+		imageModel = "gemini-2.0-flash-exp"
+	}
+	return &GeminiClient{
+		geminiKeys:     geminiKeys,
+		kimiKeys:       kimiKeys,
+		minimaxKeys:    minimaxKeys,
+		textModelName:  textModel,
+		imageModelName: imageModel,
+		httpClient:     &http.Client{Timeout: 60 * time.Second},
+	}
+}
+
 func (c *GeminiClient) GenerateText(ctx context.Context, prompt string, temperature float32, maxTokens int32) (string, error) {
-	if c.textModel == nil {
-		return "", fmt.Errorf("text model not configured")
+	return c.GenerateTextWithProvider(ctx, "gemini", prompt, temperature, maxTokens)
+}
+
+func (c *GeminiClient) GenerateTextWithProvider(ctx context.Context, preferredProvider, prompt string, temperature float32, maxTokens int32) (string, error) {
+	providersOrder := []string{"gemini", "kimi", "minimax"}
+	switch strings.ToLower(preferredProvider) {
+	case "kimi":
+		providersOrder = []string{"kimi", "gemini", "minimax"}
+	case "minimax":
+		providersOrder = []string{"minimax", "gemini", "kimi"}
 	}
 
-	modelName := c.textModelName
-	if modelName == "" {
-		modelName = "gemini-1.5-flash"
-	}
-	model := c.client.GenerativeModel(modelName)
-	model.SetTemperature(temperature)
-	model.SetMaxOutputTokens(maxTokens)
+	var errs []string
 
-	var resp *genai.GenerateContentResponse
-	var err error
+	for _, provider := range providersOrder {
+		var text string
+		var err error
 
-	retryFn := func() error {
-		res, genErr := model.GenerateContent(ctx, genai.Text(prompt))
-		if genErr != nil {
-			return genErr
+		switch provider {
+		case "gemini":
+			if len(c.geminiKeys) > 0 {
+				text, err = c.executeGeminiWithPool(ctx, prompt, temperature, maxTokens)
+			} else {
+				err = fmt.Errorf("no gemini API keys available")
+			}
+		case "kimi":
+			if len(c.kimiKeys) > 0 {
+				text, err = c.executeKimiWithPool(ctx, prompt, temperature, maxTokens)
+			} else {
+				err = fmt.Errorf("no kimi API keys available")
+			}
+		case "minimax":
+			if len(c.minimaxKeys) > 0 {
+				text, err = c.executeMiniMaxWithPool(ctx, prompt, temperature, maxTokens)
+			} else {
+				err = fmt.Errorf("no minimax API keys available")
+			}
 		}
-		if len(res.Candidates) == 0 {
-			slog.Warn("gemini returned 0 candidates")
-			return fmt.Errorf("gemini returned 0 candidates")
+
+		if err == nil && strings.TrimSpace(text) != "" {
+			return text, nil
 		}
-		resp = res
-		return nil
+		if err != nil {
+			slog.Warn("ai: provider execution failed, attempting failover", "provider", provider, "error", err)
+			errs = append(errs, fmt.Sprintf("[%s: %v]", provider, err))
+		}
 	}
 
-	retryCfg := util.DefaultRetryConfig()
-	retryCfg.MaxRetries = 2
-	if err = util.WithRetry(ctx, retryCfg, "gemini_generate_text", retryFn); err != nil {
-		slog.Error("gemini text generation failed — no fallback, returning real error", "error", err)
-		return "", fmt.Errorf("Gemini API call failed: %w", err)
+	return "", fmt.Errorf("all AI providers and API keys failed: %s", strings.Join(errs, "; "))
+}
+
+func (c *GeminiClient) executeGeminiWithPool(ctx context.Context, prompt string, temperature float32, maxTokens int32) (string, error) {
+	c.mu.Lock()
+	keys := make([]string, len(c.geminiKeys))
+	copy(keys, c.geminiKeys)
+	startIdx := c.geminiIdx
+	c.mu.Unlock()
+
+	if len(keys) == 0 {
+		return "", fmt.Errorf("gemini key pool empty")
 	}
 
-	return c.extractText(resp), nil
+	var lastErr error
+	for i := 0; i < len(keys); i++ {
+		keyIdx := (startIdx + i) % len(keys)
+		key := keys[keyIdx]
+
+		text, err := c.callGeminiSingleKey(ctx, key, prompt, temperature, maxTokens)
+		if err == nil && strings.TrimSpace(text) != "" {
+			c.mu.Lock()
+			c.geminiIdx = (keyIdx + 1) % len(keys)
+			c.mu.Unlock()
+			return text, nil
+		}
+
+		slog.Warn("ai: Gemini API key failed, rotating to next key in pool",
+			"key_prefix", safeKeyPrefix(key),
+			"error", err,
+		)
+		lastErr = err
+	}
+
+	return "", fmt.Errorf("gemini pool exhausted: %w", lastErr)
+}
+
+func (c *GeminiClient) callGeminiSingleKey(ctx context.Context, key, prompt string, temperature float32, maxTokens int32) (string, error) {
+	client, err := genai.NewClient(ctx, option.WithAPIKey(key))
+	if err != nil {
+		return "", fmt.Errorf("failed to create client: %w", err)
+	}
+	defer client.Close()
+
+	modelsToTry := []string{c.textModelName, "gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.0-flash-exp", "gemini-1.0-pro"}
+	var lastErr error
+
+	for _, mName := range modelsToTry {
+		if mName == "" {
+			continue
+		}
+		model := client.GenerativeModel(mName)
+		model.SetTemperature(temperature)
+		if maxTokens > 0 {
+			model.SetMaxOutputTokens(maxTokens)
+		}
+
+		resp, err := model.GenerateContent(ctx, genai.Text(prompt))
+		if err != nil {
+			lastErr = err
+			continue
+		}
+
+		if len(resp.Candidates) == 0 {
+			lastErr = fmt.Errorf("0 candidates returned by gemini model %s", mName)
+			continue
+		}
+
+		text := c.extractText(resp)
+		if strings.TrimSpace(text) != "" {
+			return text, nil
+		}
+	}
+
+	return "", fmt.Errorf("gemini call failed for key prefix %s: %w", safeKeyPrefix(key), lastErr)
+}
+
+func (c *GeminiClient) executeKimiWithPool(ctx context.Context, prompt string, temperature float32, maxTokens int32) (string, error) {
+	c.mu.Lock()
+	keys := make([]string, len(c.kimiKeys))
+	copy(keys, c.kimiKeys)
+	startIdx := c.kimiIdx
+	c.mu.Unlock()
+
+	if len(keys) == 0 {
+		return "", fmt.Errorf("kimi key pool empty")
+	}
+
+	var lastErr error
+	for i := 0; i < len(keys); i++ {
+		keyIdx := (startIdx + i) % len(keys)
+		key := keys[keyIdx]
+
+		text, err := c.callKimiSingleKey(ctx, key, prompt, temperature, maxTokens)
+		if err == nil && strings.TrimSpace(text) != "" {
+			c.mu.Lock()
+			c.kimiIdx = (keyIdx + 1) % len(keys)
+			c.mu.Unlock()
+			return text, nil
+		}
+
+		slog.Warn("ai: Kimi API key failed, rotating to next key in pool",
+			"key_prefix", safeKeyPrefix(key),
+			"error", err,
+		)
+		lastErr = err
+	}
+
+	return "", fmt.Errorf("kimi pool exhausted: %w", lastErr)
+}
+
+func (c *GeminiClient) callKimiSingleKey(ctx context.Context, key, prompt string, temperature float32, maxTokens int32) (string, error) {
+	endpoint := "https://api.moonshot.cn/v1/chat/completions"
+	modelsToTry := []string{"moonshot-v1-8k", "moonshot-v1-32k", "kimi-latest"}
+
+	if strings.HasPrefix(key, "sk-") && !strings.HasPrefix(key, "sk-ECl") && len(key) > 40 {
+		endpoint = "https://api.openai.com/v1/chat/completions"
+		modelsToTry = []string{"gpt-4o-mini", "gpt-4o", "gpt-3.5-turbo"}
+	}
+
+	for _, mName := range modelsToTry {
+		reqBody := map[string]interface{}{
+			"model": mName,
+			"messages": []map[string]string{
+				{"role": "user", "content": prompt},
+			},
+			"temperature": temperature,
+		}
+		if maxTokens > 0 {
+			reqBody["max_tokens"] = maxTokens
+		}
+
+		bodyBytes, _ := json.Marshal(reqBody)
+		req, err := http.NewRequestWithContext(ctx, "POST", endpoint, bytes.NewBuffer(bodyBytes))
+		if err != nil {
+			return "", err
+		}
+
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+key)
+
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			continue
+		}
+
+		respBytes, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil || resp.StatusCode != 200 {
+			slog.Debug("ai: kimi request non-200", "status", resp.StatusCode, "body", string(respBytes))
+			continue
+		}
+
+		var apiResp struct {
+			Choices []struct {
+				Message struct {
+					Content string `json:"content"`
+				} `json:"message"`
+			} `json:"choices"`
+		}
+
+		if err := json.Unmarshal(respBytes, &apiResp); err == nil && len(apiResp.Choices) > 0 {
+			content := apiResp.Choices[0].Message.Content
+			if strings.TrimSpace(content) != "" {
+				return content, nil
+			}
+		}
+	}
+
+	return "", fmt.Errorf("kimi call failed for key prefix %s", safeKeyPrefix(key))
+}
+
+func (c *GeminiClient) executeMiniMaxWithPool(ctx context.Context, prompt string, temperature float32, maxTokens int32) (string, error) {
+	c.mu.Lock()
+	keys := make([]string, len(c.minimaxKeys))
+	copy(keys, c.minimaxKeys)
+	startIdx := c.minimaxIdx
+	c.mu.Unlock()
+
+	if len(keys) == 0 {
+		return "", fmt.Errorf("minimax key pool empty")
+	}
+
+	var lastErr error
+	for i := 0; i < len(keys); i++ {
+		keyIdx := (startIdx + i) % len(keys)
+		key := keys[keyIdx]
+
+		text, err := c.callMiniMaxSingleKey(ctx, key, prompt, temperature, maxTokens)
+		if err == nil && strings.TrimSpace(text) != "" {
+			c.mu.Lock()
+			c.minimaxIdx = (keyIdx + 1) % len(keys)
+			c.mu.Unlock()
+			return text, nil
+		}
+
+		slog.Warn("ai: MiniMax API key failed, rotating to next key in pool",
+			"key_prefix", safeKeyPrefix(key),
+			"error", err,
+		)
+		lastErr = err
+	}
+
+	return "", fmt.Errorf("minimax pool exhausted: %w", lastErr)
+}
+
+func (c *GeminiClient) callMiniMaxSingleKey(ctx context.Context, key, prompt string, temperature float32, maxTokens int32) (string, error) {
+	endpoints := []string{
+		"https://api.minimaxi.chat/v1/text/chatcompletion_v2",
+		"https://api.minimaxi.chat/v1/chat/completions",
+		"https://api.minimax.chat/v1/chat/completions",
+	}
+
+	modelsToTry := []string{"abab6.5g-chat", "abab6.5t-chat", "minimax-text-01"}
+
+	for _, endpoint := range endpoints {
+		for _, mName := range modelsToTry {
+			reqBody := map[string]interface{}{
+				"model": mName,
+				"messages": []map[string]interface{}{
+					{"sender_type": "USER", "sender_name": "user", "text": prompt, "role": "user", "content": prompt},
+				},
+				"temperature": temperature,
+			}
+			if maxTokens > 0 {
+				reqBody["max_tokens"] = maxTokens
+			}
+
+			bodyBytes, _ := json.Marshal(reqBody)
+			req, err := http.NewRequestWithContext(ctx, "POST", endpoint, bytes.NewBuffer(bodyBytes))
+			if err != nil {
+				return "", err
+			}
+
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Authorization", "Bearer "+key)
+
+			resp, err := c.httpClient.Do(req)
+			if err != nil {
+				continue
+			}
+
+			respBytes, err := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			if err != nil || resp.StatusCode != 200 {
+				slog.Debug("ai: minimax request non-200", "status", resp.StatusCode, "body", string(respBytes))
+				continue
+			}
+
+			var apiResp struct {
+				Choices []struct {
+					Message struct {
+						Content string `json:"content"`
+					} `json:"message"`
+				} `json:"choices"`
+				Reply string `json:"reply"`
+			}
+
+			if err := json.Unmarshal(respBytes, &apiResp); err == nil {
+				if len(apiResp.Choices) > 0 && strings.TrimSpace(apiResp.Choices[0].Message.Content) != "" {
+					return apiResp.Choices[0].Message.Content, nil
+				}
+				if strings.TrimSpace(apiResp.Reply) != "" {
+					return apiResp.Reply, nil
+				}
+			}
+		}
+	}
+
+	return "", fmt.Errorf("minimax call failed for key prefix %s", safeKeyPrefix(key))
 }
 
 func (c *GeminiClient) GenerateImage(ctx context.Context, prompt string) ([]byte, error) {
-	if c.imageModel == nil {
-		return nil, fmt.Errorf("image model not configured")
+	c.mu.Lock()
+	keys := make([]string, len(c.geminiKeys))
+	copy(keys, c.geminiKeys)
+	c.mu.Unlock()
+
+	if len(keys) == 0 {
+		return nil, fmt.Errorf("no gemini keys available for image generation")
 	}
 
-	resp, err := c.imageModel.GenerateContent(ctx, genai.Text(prompt))
-	if err != nil {
-		return nil, fmt.Errorf("gemini image generation failed: %w", err)
+	var lastErr error
+	for _, key := range keys {
+		client, err := genai.NewClient(ctx, option.WithAPIKey(key))
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		model := client.GenerativeModel(c.imageModelName)
+		resp, err := model.GenerateContent(ctx, genai.Text(prompt))
+		client.Close()
+
+		if err != nil {
+			lastErr = err
+			continue
+		}
+
+		imgData, err := c.extractImage(resp)
+		if err == nil {
+			return imgData, nil
+		}
+		lastErr = err
 	}
 
-	return c.extractImage(resp)
+	return nil, fmt.Errorf("gemini image generation failed: %w", lastErr)
 }
 
 func (c *GeminiClient) GenerateStructured(ctx context.Context, prompt string, schema map[string]interface{}) (map[string]interface{}, error) {
-	if c.textModel == nil {
-		return nil, fmt.Errorf("text model not configured")
-	}
-
-	modelName := c.textModelName
-	if modelName == "" {
-		modelName = "gemini-1.5-flash"
-	}
-	model := c.client.GenerativeModel(modelName)
-	model.SetTemperature(0.2)
-	model.SetMaxOutputTokens(4096)
-
-	// Instruct model to respond as JSON via prompt prefix
 	jsonPrompt := "Respond ONLY with valid JSON, no markdown or explanation.\n" + prompt
-	resp, err := model.GenerateContent(ctx, genai.Text(jsonPrompt))
+	text, err := c.GenerateText(ctx, jsonPrompt, 0.2, 4096)
 	if err != nil {
-		return nil, fmt.Errorf("gemini structured generation failed: %w", err)
+		return nil, fmt.Errorf("structured generation failed: %w", err)
 	}
 
-	text := c.extractText(resp)
 	var result map[string]interface{}
 	if err := json.Unmarshal([]byte(util.ExtractJSON(text)), &result); err != nil {
 		return nil, fmt.Errorf("failed to parse JSON: %w", err)
@@ -148,7 +486,6 @@ Respond ONLY as JSON array of objects.`, count, niche)
 		return nil, err
 	}
 
-	// Extract JSON array
 	jsonStr := c.extractJSON(text)
 	var keywords []KeywordSuggestion
 	if err := json.Unmarshal([]byte(jsonStr), &keywords); err != nil {
@@ -325,12 +662,8 @@ Output the optimized full content.`, targetLLMs, util.SafeTruncate(content, 4000
 }
 
 func (c *GeminiClient) Close() {
-	if c.client != nil {
-		c.client.Close()
-	}
+	// No persistent resources to close
 }
-
-
 
 func (c *GeminiClient) extractText(resp *genai.GenerateContentResponse) string {
 	if resp == nil {
@@ -371,7 +704,49 @@ func (c *GeminiClient) extractJSON(text string) string {
 	return util.ExtractJSON(text)
 }
 
+func parseKeysFromString(raw string) (gemini []string, kimi []string, minimax []string) {
+	if decoded, err := base64.StdEncoding.DecodeString(raw); err == nil && len(decoded) > 0 {
+		raw = string(decoded)
+	}
+	parts := strings.Split(raw, ",")
+	for _, p := range parts {
+		k := strings.TrimSpace(p)
+		if k == "" {
+			continue
+		}
+		if strings.HasPrefix(k, "AIzaSy") {
+			gemini = append(gemini, k)
+		} else if strings.HasPrefix(k, "sk-api-") {
+			minimax = append(minimax, k)
+		} else if strings.HasPrefix(k, "sk-") || strings.HasPrefix(k, "AQ.") || strings.HasPrefix(k, "moonshot-") || strings.HasPrefix(k, "kimi-") {
+			kimi = append(kimi, k)
+		} else {
+			gemini = append(gemini, k)
+		}
+	}
+	return gemini, kimi, minimax
+}
 
+func appendUnique(target []string, items ...string) []string {
+	seen := make(map[string]bool)
+	for _, t := range target {
+		seen[t] = true
+	}
+	for _, item := range items {
+		if item != "" && !seen[item] {
+			seen[item] = true
+			target = append(target, item)
+		}
+	}
+	return target
+}
+
+func safeKeyPrefix(key string) string {
+	if len(key) <= 8 {
+		return key
+	}
+	return key[:8] + "..."
+}
 
 // FAQItem helper for JSON serialization
 func (f FAQItem) toJSON() (string, error) {
@@ -454,13 +829,13 @@ type SocialScripts struct {
 }
 
 type VideoScript struct {
-	TitleOptions   []string       `json:"title_options"`
-	Hook           string         `json:"hook"`
+	TitleOptions   []string        `json:"title_options"`
+	Hook           string          `json:"hook"`
 	ScriptSegments []ScriptSegment `json:"script_segments"`
-	CTA            string         `json:"cta"`
-	Description    string         `json:"description"`
-	Tags           []string       `json:"tags"`
-	ThumbnailIdeas []string       `json:"thumbnail_ideas"`
+	CTA            string          `json:"cta"`
+	Description    string          `json:"description"`
+	Tags           []string        `json:"tags"`
+	ThumbnailIdeas []string        `json:"thumbnail_ideas"`
 }
 
 type ScriptSegment struct {

@@ -98,7 +98,7 @@ Knowledge Base:
 
 Outline the strategic content directives for @Gemini (Creator Agent) and quality control rules for @MiniMax (Reviewer Agent). Keep it concise, analytical, and actionable.`, topic, strings.Join(keywords, ", "), ragContext)
 
-	kimiDirectives, err := m.gemini.GenerateText(ctx, kimiPlanPrompt, 0.4, 2048)
+	kimiDirectives, err := m.gemini.GenerateTextWithProvider(ctx, "kimi", kimiPlanPrompt, 0.4, 2048)
 	if err != nil {
 		slog.Warn("MULTI-AGENT: Kimi Leader directive fallback", "error", err)
 		kimiDirectives = fmt.Sprintf("Kimi Leader Directive: Create a high-authority GEO/AEO article covering %s with E-E-A-T sources.", topic)
@@ -125,7 +125,7 @@ Generate a comprehensive blog post draft.
 Output ONLY valid JSON with fields: title, meta_description, tldr, table_of_contents, body, faq, takeaways, internal_links, cta`,
 		topic, strings.Join(keywords, ", "), minWords, maxWords, kimiDirectives)
 
-	draftJSON, err := m.gemini.GenerateText(ctx, creatorPrompt, 0.7, 8192)
+	draftJSON, err := m.gemini.GenerateTextWithProvider(ctx, "gemini", creatorPrompt, 0.7, 8192)
 	if err != nil {
 		return nil, fmt.Errorf("creator agent failed: %w", err)
 	}
@@ -155,7 +155,7 @@ Analyze draft for:
 
 Formulate 3 critical refining questions / improvements for Gemini to synthesize.`, topic, kimiDirectives, draftJSON)
 
-	critiqueText, err := m.gemini.GenerateText(ctx, critiquePrompt, 0.4, 4096)
+	critiqueText, err := m.gemini.GenerateTextWithProvider(ctx, "minimax", critiquePrompt, 0.4, 4096)
 	if err != nil {
 		slog.Warn("MULTI-AGENT: MiniMax critique step warning", "error", err)
 		critiqueText = "MiniMax Review: Ensure E-E-A-T citations, AEO answer blocks, and FAQ schema are 100% complete."
