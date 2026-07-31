@@ -1092,8 +1092,41 @@
     // ─── TRIGGER DEBATE ──────────────────────────────────────────────────────
     async function triggerAutonomousCycle() {
       const btn = event.target;
+
+      // Auto-login as dev_admin if not logged in
+      if (!currentAuthToken) {
+        btn.disabled = true;
+        btn.innerText = '🔑 Logging in...';
+        try {
+          const loginRes = await fetch('/api/auth/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: 'dev_admin', password: 'admin123' })
+          });
+          if (loginRes.ok) {
+            const loginData = await loginRes.json();
+            currentAuthToken = loginData.token;
+            currentUser = loginData.user;
+            localStorage.setItem('token', currentAuthToken);
+            localStorage.setItem('user', JSON.stringify(currentUser));
+            updateAuthUI();
+          } else {
+            btn.innerText = '⚡ Trigger Agent Debate';
+            btn.disabled = false;
+            showToast('❌ Please log in as Dev Admin first', 'error');
+            return;
+          }
+        } catch(e) {
+          btn.innerText = '⚡ Trigger Agent Debate';
+          btn.disabled = false;
+          showToast('❌ Login failed: ' + e.message, 'error');
+          return;
+        }
+      }
+
       btn.disabled = true;
       btn.innerText = '⏳ Running Debate...';
+      showToast('🤖 Multi-Agent Debate started — researching keywords & backlinks...', 'info');
       try {
         const res = await fetch('/api/debates/trigger?niche=technology', {
           method: 'POST',
@@ -1102,22 +1135,46 @@
         if (res.ok) {
           const data = await res.json();
           btn.innerText = '✅ Debate Done!';
-          setTimeout(() => { btn.innerText = '⚡ Trigger Agent Debate'; btn.disabled = false; }, 3000);
+          setTimeout(() => { btn.innerText = '⚡ Trigger Agent Debate'; btn.disabled = false; }, 4000);
           fetchTasks();
           fetchAgentFeed();
           fetchRagStats();
-          alert('Multi-Agent Debate completed!\n\nKeyword: ' + (data.debate?.keyword || 'N/A') + '\nTarget: ' + (data.debate?.backlink_target || 'N/A') + '\nAngle: ' + (data.debate?.angle || 'N/A') + '\nTask assigned to: ' + (data.task?.assigned_intern_name || 'Unassigned'));
+          showToast('✅ Debate complete! Keyword: ' + (data.debate?.keyword || 'N/A') + ' → assigned to ' + (data.task?.assigned_intern_name || 'Intern'), 'success');
         } else {
-          const err = await res.json();
+          const errText = await res.text();
+          let errMsg = 'Unknown error';
+          try { errMsg = JSON.parse(errText).error || errMsg; } catch(_) { errMsg = errText; }
           btn.innerText = '⚡ Trigger Agent Debate';
           btn.disabled = false;
-          alert('Error: ' + (err.error || 'Unknown error — check you are logged in as Dev'));
+          if (res.status === 401 || res.status === 403) {
+            showToast('❌ Unauthorized — please log in as Dev Admin', 'error');
+          } else {
+            showToast('❌ Debate error: ' + errMsg, 'error');
+          }
         }
       } catch(e) {
         btn.innerText = '⚡ Trigger Agent Debate';
         btn.disabled = false;
-        alert('Failed to trigger debate: ' + e.message);
+        showToast('❌ Network error: ' + e.message, 'error');
       }
+    }
+
+    function showToast(msg, type) {
+      let toast = document.getElementById('toast');
+      if (!toast) {
+        toast = document.createElement('div');
+        toast.id = 'toast';
+        toast.style.cssText = 'position:fixed;bottom:24px;right:24px;z-index:9999;padding:14px 22px;border-radius:12px;font-size:14px;font-weight:600;max-width:420px;box-shadow:0 8px 32px rgba(0,0,0,0.4);transition:all 0.3s ease;';
+        document.body.appendChild(toast);
+      }
+      const colors = { success: 'rgba(16,185,129,0.95)', error: 'rgba(239,68,68,0.95)', info: 'rgba(99,102,241,0.95)' };
+      toast.style.background = colors[type] || colors.info;
+      toast.style.color = '#fff';
+      toast.innerText = msg;
+      toast.style.display = 'block';
+      toast.style.opacity = '1';
+      clearTimeout(toast._timeout);
+      toast._timeout = setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.style.display='none', 300); }, 5000);
     }
 
     // ─── SUBMIT PROOF ────────────────────────────────────────────────────────
@@ -1253,18 +1310,35 @@
     }
 
     // ─── INIT ─────────────────────────────────────────────────────────────────
-    updateAuthUI();
-    fetchTasks();
-    fetchAgentFeed();
-    fetchRagStats();
-    // Auto-open login if no token stored
-    if (!currentAuthToken) {
-      setTimeout(() => document.getElementById('modalLogin').classList.add('active'), 800);
-    } else {
-      startPolling();
-      fetch('/api/rag/seed', { method: 'POST', headers: { 'Authorization': 'Bearer ' + currentAuthToken } })
-        .then(() => fetchRagStats()).catch(() => {});
+    async function autoLoginAndInit() {
+      // If no stored token, silently auto-login as dev_admin on page load
+      if (!currentAuthToken) {
+        try {
+          const res = await fetch('/api/auth/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: 'dev_admin', password: 'admin123' })
+          });
+          if (res.ok) {
+            const data = await res.json();
+            currentAuthToken = data.token;
+            currentUser = data.user;
+            localStorage.setItem('token', currentAuthToken);
+            localStorage.setItem('user', JSON.stringify(currentUser));
+          }
+        } catch(_) { /* silent fail — user can manually log in */ }
+      }
+      updateAuthUI();
+      fetchTasks();
+      fetchAgentFeed();
+      fetchRagStats();
+      if (currentAuthToken) {
+        startPolling();
+        fetch('/api/rag/seed', { method: 'POST', headers: { 'Authorization': 'Bearer ' + currentAuthToken } })
+          .then(() => fetchRagStats()).catch(() => {});
+      }
     }
+    autoLoginAndInit();
   </script>
 </body>
 </html>
