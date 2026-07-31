@@ -144,43 +144,22 @@ func SeedDefaultUsers(db *gorm.DB) error {
 		return err
 	}
 
-	// Create default Intern users
-	interns := []database.User{
-		{
-			Username:         "alex_intern",
-			Email:            "alex@kenerateai.com",
-			PasswordHash:     HashPassword("intern123"),
-			Role:             "intern",
-			TasksCompleted:   12,
-			TasksPending:     2,
-			VerificationRate: 92.5,
-			CreatedAt:        time.Now(),
-		},
-		{
-			Username:         "maya_intern",
-			Email:            "maya@kenerateai.com",
-			PasswordHash:     HashPassword("intern123"),
-			Role:             "intern",
-			TasksCompleted:   8,
-			TasksPending:     1,
-			VerificationRate: 100.0,
-			CreatedAt:        time.Now(),
-		},
-		{
-			Username:         "sam_intern",
-			Email:            "sam@kenerateai.com",
-			PasswordHash:     HashPassword("intern123"),
-			Role:             "intern",
-			TasksCompleted:   15,
-			TasksPending:     3,
-			VerificationRate: 88.0,
-			CreatedAt:        time.Now(),
-		},
-	}
-
-	for _, intern := range interns {
-		if err := db.Create(&intern).Error; err != nil {
-			return err
+	// Create requested Intern users: anu, master, hirtik, anuj
+	internNames := []string{"anu", "master", "hirtik", "anuj"}
+	for i, name := range internNames {
+		var existing database.User
+		if db.Where("username = ?", name).First(&existing).Error != nil {
+			intern := database.User{
+				Username:         name,
+				Email:            fmt.Sprintf("%s@kenerateai.com", name),
+				PasswordHash:     HashPassword("intern123"),
+				Role:             "intern",
+				TasksCompleted:   (i + 1) * 3,
+				TasksPending:     1,
+				VerificationRate: 95.0,
+				CreatedAt:        time.Now(),
+			}
+			db.Create(&intern)
 		}
 	}
 

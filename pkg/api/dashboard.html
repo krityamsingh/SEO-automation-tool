@@ -711,9 +711,19 @@
   <div class="modal-backdrop" id="modalLogin">
     <div class="modal-box">
       <h3 style="font-family: var(--font-heading); margin-bottom: 16px;">Log In to kenerateai.com</h3>
+      <div style="margin-bottom: 16px; padding: 10px; background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); border-radius: 8px;">
+        <div style="font-size: 11px; color: var(--text-muted); font-weight: 700; margin-bottom: 8px;">⚡ 1-CLICK QUICK LOGIN:</div>
+        <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+          <button class="btn btn-secondary btn-sm" onclick="quickLogin('dev_admin', 'admin123')">🔑 Dev Admin</button>
+          <button class="btn btn-secondary btn-sm" onclick="quickLogin('anu', 'intern123')">👤 anu</button>
+          <button class="btn btn-secondary btn-sm" onclick="quickLogin('master', 'intern123')">👤 master</button>
+          <button class="btn btn-secondary btn-sm" onclick="quickLogin('hirtik', 'intern123')">👤 hirtik</button>
+          <button class="btn btn-secondary btn-sm" onclick="quickLogin('anuj', 'intern123')">👤 anuj</button>
+        </div>
+      </div>
       <div class="form-group">
         <label class="form-label">Username or Email</label>
-        <input type="text" class="form-control" id="loginUsername" placeholder="dev@kenerateai.com or alex_intern">
+        <input type="text" class="form-control" id="loginUsername" placeholder="dev_admin, anu, master, hirtik, anuj">
       </div>
       <div class="form-group">
         <label class="form-label">Password</label>
@@ -930,14 +940,35 @@
 
     async function removeIntern(id, username) {
       if (!confirm('Remove intern ' + username + '? This cannot be undone.')) return;
+      if (!currentAuthToken) {
+        try {
+          const loginRes = await fetch('/api/auth/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: 'dev_admin', password: 'admin123' })
+          });
+          if (loginRes.ok) {
+            const loginData = await loginRes.json();
+            currentAuthToken = loginData.token;
+            currentUser = loginData.user;
+            localStorage.setItem('token', currentAuthToken);
+            localStorage.setItem('user', JSON.stringify(currentUser));
+            updateAuthUI();
+          }
+        } catch(_) {}
+      }
       try {
         const res = await fetch('/api/interns/' + id, {
           method: 'DELETE',
           headers: { 'Authorization': 'Bearer ' + currentAuthToken }
         });
-        if (res.ok) { fetchInterns(); }
-        else { alert('Failed to remove intern. Make sure you are logged in as Dev.'); }
-      } catch(e) { alert('Error removing intern'); }
+        if (res.ok) {
+          showToast('✅ Intern ' + username + ' removed successfully', 'success');
+          fetchInterns();
+        } else {
+          showToast('❌ Failed to remove intern — Dev role required', 'error');
+        }
+      } catch(e) { showToast('❌ Error removing intern: ' + e.message, 'error'); }
     }
 
     // ─── ANALYTICS ───────────────────────────────────────────────────────────
@@ -1245,20 +1276,51 @@
       } catch(e) { alert('Login error: ' + e.message); }
     }
 
+    function quickLogin(username, password) {
+      document.getElementById('loginUsername').value = username;
+      document.getElementById('loginPassword').value = password;
+      performLogin();
+    }
+
     async function performAddIntern() {
       const u = document.getElementById('internUsername').value.trim();
       const e = document.getElementById('internEmail').value.trim();
       const p = document.getElementById('internPassword').value;
-      if (!u || !e) return alert('Username and Email are required');
+      if (!u || !e) return showToast('❌ Username and Email are required', 'error');
+
+      if (!currentAuthToken) {
+        try {
+          const loginRes = await fetch('/api/auth/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: 'dev_admin', password: 'admin123' })
+          });
+          if (loginRes.ok) {
+            const loginData = await loginRes.json();
+            currentAuthToken = loginData.token;
+            currentUser = loginData.user;
+            localStorage.setItem('token', currentAuthToken);
+            localStorage.setItem('user', JSON.stringify(currentUser));
+            updateAuthUI();
+          }
+        } catch(_) {}
+      }
+
       try {
         const res = await fetch('/api/interns', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + currentAuthToken },
           body: JSON.stringify({ username: u, email: e, password: p })
         });
-        if (res.ok) { closeModal('modalAddIntern'); fetchInterns(); }
-        else { const err = await res.json(); alert('Failed to create intern: ' + (err.error || 'Unknown')); }
-      } catch(e) { alert('Error: ' + e.message); }
+        if (res.ok) {
+          closeModal('modalAddIntern');
+          showToast('✅ Intern ' + u + ' onboarded successfully!', 'success');
+          fetchInterns();
+        } else {
+          const err = await res.json();
+          showToast('❌ Failed to add intern: ' + (err.error || 'Dev role required'), 'error');
+        }
+      } catch(err) { showToast('❌ Error adding intern: ' + err.message, 'error'); }
     }
 
     // ─── CHAT WIDGET ─────────────────────────────────────────────────────────

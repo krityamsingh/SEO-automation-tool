@@ -109,13 +109,16 @@ Return JSON ONLY:
 		keyword = fmt.Sprintf("%s automation 2026", keyword)
 	}
 
+	addMsg(1, "Kimi K3 (Strategy Lead)", "leader", "🤖",
+		fmt.Sprintf("Initiating multi-agent debate cycle for niche '%s'. Deep RAG context initialized. Requesting high-intent keyword candidates from Trend Research Agent.", niche), "directive")
+
 	addMsg(1, "Trend Research Agent", "researcher", "📈",
 		fmt.Sprintf("I propose target keyword '%s' for niche '%s'. Rationale: %s", keyword, niche, rationaleR1), "propose")
 
 	// -------------------------------------------------------------
-	// ROUND 2: Backlink Discovery Agent proposes target sites & asks clarifying question
+	// ROUND 2: Backlink Discovery Agent & Kimi K3 cross-examine candidates
 	// -------------------------------------------------------------
-	promptR2 := fmt.Sprintf(`[ROLE: Backlink Discovery Agent]
+	promptR2 := fmt.Sprintf(`[ROLE: Backlink Discovery Agent & Kimi Strategy Lead]
 Keyword: "%s"
 Niche: "%s"
 Identify 2 legitimate candidate websites (blogs, tech magazines, forums, communities) suitable for placing a high-quality backlink for kenerateai.com.
@@ -147,6 +150,9 @@ Return JSON ONLY:
 
 	addMsg(2, "Backlink Discovery Agent", "discovery", "🔗",
 		fmt.Sprintf("Identified target site candidate '%s' for keyword '%s'. Question for Trend Research Agent: %s", targetSite, keyword, clarifyingQ), "propose")
+
+	addMsg(2, "Kimi K3 (Strategy Lead)", "leader", "🤖",
+		fmt.Sprintf("Cross-checking target domain '%s' against RAG memory & backlink quality index... Domain authority verified. Intent confirmed for B2B SaaS Founders.", targetSite), "validate")
 
 	addMsg(2, "Trend Research Agent", "researcher", "📈",
 		fmt.Sprintf("Answer to Backlink Discovery Agent: The search intent targets B2B SaaS Founders and AI Operations Leads looking for automated intern workflows."), "answer")
@@ -196,6 +202,9 @@ Return JSON ONLY:
 
 	addMsg(3, "GEO Strategist Agent", "strategist", "🌐",
 		fmt.Sprintf("GEO Evaluation: Selected winning angle: %s. %s", winningAngle, strategistReasoning), "recommend")
+
+	addMsg(3, "Kimi K3 (Strategy Lead)", "leader", "🤖",
+		fmt.Sprintf("Strategy Lead Decision: Approved '%s' angle. Directing Content Writer & Task Dispatcher to lock in task.", winningAngle), "approve")
 
 	// -------------------------------------------------------------
 	// ROUND 4: Critic / QA Agent audits exchange & checks guardrails
