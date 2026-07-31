@@ -1,8 +1,11 @@
 package handler
 
 import (
+	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 
 	"aeo_geo_seo_agent/pkg/aeo"
@@ -24,18 +27,35 @@ import (
 var (
 	apiServer *api.Server
 	initOnce  sync.Once
+	initError error
 )
 
 func initializeServer() {
-	if os.Getenv("VERCEL") == "" {
-		os.Setenv("VERCEL", "1")
-	}
+	defer func() {
+		if r := recover(); r != nil {
+			initError = fmt.Errorf("server initialization panic: %v", r)
+			slog.Error("CRITICAL: initialization panic recovered", "error", initError)
+		}
+	}()
+
+	os.Setenv("VERCEL", "1")
 
 	cfg := config.Load()
 
-	db, err := database.Connect(cfg.DatabaseURL)
+	// Ensure SQLite path is in /tmp for Vercel serverless environment
+	dbURL := cfg.DatabaseURL
+	if dbURL == "" || dbURL == "sqlite://agent.db" || strings.HasSuffix(dbURL, "agent.db") {
+		dbURL = "sqlite:///tmp/agent.db"
+	}
+
+	db, err := database.Connect(dbURL)
 	if err != nil {
-		db, _ = database.Connect("sqlite:///tmp/vercel_agent.db")
+		slog.Warn("primary DB connection failed, attempting fallback to /tmp/agent.db", "error", err)
+		db, err = database.Connect("sqlite:///tmp/agent.db")
+		if err != nil {
+			initError = fmt.Errorf("database connection failed: %w", err)
+			return
+		}
 	}
 	_ = database.AutoMigrate(db)
 
@@ -59,14 +79,34 @@ func initializeServer() {
 	sched := scheduler.New(cfg, gemini, crawl, seoEngine, writer, aeoEngine, geoEngine, publishers, db, agentSys, taskEng)
 
 	apiServer = api.New(db, sched, gemini, cfg, crawl, ragEngine, agentSys, taskEng)
+	slog.Info("Vercel serverless function initialized successfully")
 }
 
 // Handler is the Vercel serverless function entrypoint
 func Handler(w http.ResponseWriter, r *http.Request) {
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("CRITICAL: Vercel handler panic recovered", "panic", r)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			fmt.Fprintf(w, `{"error": "Internal Server Error", "details": "%v"}`, r)
+		}
+	}()
+
 	initOnce.Do(initializeServer)
+
+	if initError != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		fmt.Fprintf(w, `{"error": "Server initialization failed", "details": "%v"}`, initError)
+		return
+	}
+
 	if apiServer != nil {
 		apiServer.ServeHTTP(w, r)
 	} else {
-		http.Error(w, "Server initialization failed", http.StatusInternalServerError)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		fmt.Fprintln(w, `{"error": "Server unavailable"}`)
 	}
 }
