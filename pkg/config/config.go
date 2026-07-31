@@ -82,7 +82,7 @@ func Load() *Config {
 		KimiAPIKeys:            kimiPool,
 		MiniMaxAPIKey:          primaryMiniMax,
 		MiniMaxAPIKeys:         minimaxPool,
-		GeminiTextModel:        getDefault("GEMINI_TEXT_MODEL", "gemini-1.5-flash"),
+		GeminiTextModel:        getDefault("GEMINI_TEXT_MODEL", "gemini-3.6-flash"),
 		GeminiImageModel:       getDefault("GEMINI_IMAGE_MODEL", "gemini-2.0-flash-exp"),
 		AgentNiches:            split(getDefault("AGENT_NICHES", "technology,saas,ai")),
 		AgentCycleHours:        parseDuration(getDefault("AGENT_CYCLE_HOURS", "6")) * time.Hour,

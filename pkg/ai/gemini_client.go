@@ -187,8 +187,8 @@ func (c *GeminiClient) callGeminiSingleKey(ctx context.Context, key, prompt stri
 	}
 	defer client.Close()
 
-	modelsToTry := []string{c.textModelName, "gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.0-flash-exp", "gemini-1.0-pro"}
-	var lastErr error
+	modelsToTry := []string{c.textModelName, "gemini-3.6-flash", "gemini-3.5-flash", "gemini-2.0-flash", "gemini-2.5-pro", "gemini-2.0-flash-exp"}
+	var errMsgs []string
 
 	for _, mName := range modelsToTry {
 		if mName == "" {
@@ -202,12 +202,12 @@ func (c *GeminiClient) callGeminiSingleKey(ctx context.Context, key, prompt stri
 
 		resp, err := model.GenerateContent(ctx, genai.Text(prompt))
 		if err != nil {
-			lastErr = err
+			errMsgs = append(errMsgs, fmt.Sprintf("%s: %v", mName, err))
 			continue
 		}
 
 		if len(resp.Candidates) == 0 {
-			lastErr = fmt.Errorf("0 candidates returned by gemini model %s", mName)
+			errMsgs = append(errMsgs, fmt.Sprintf("%s: 0 candidates", mName))
 			continue
 		}
 
@@ -217,7 +217,7 @@ func (c *GeminiClient) callGeminiSingleKey(ctx context.Context, key, prompt stri
 		}
 	}
 
-	return "", fmt.Errorf("gemini call failed for key prefix %s: %w", safeKeyPrefix(key), lastErr)
+	return "", fmt.Errorf("gemini key %s failed: %s", safeKeyPrefix(key), strings.Join(errMsgs, " | "))
 }
 
 func (c *GeminiClient) executeKimiWithPool(ctx context.Context, prompt string, temperature float32, maxTokens int32) (string, error) {
@@ -255,64 +255,66 @@ func (c *GeminiClient) executeKimiWithPool(ctx context.Context, prompt string, t
 }
 
 func (c *GeminiClient) callKimiSingleKey(ctx context.Context, key, prompt string, temperature float32, maxTokens int32) (string, error) {
-	endpoint := "https://api.moonshot.cn/v1/chat/completions"
-	modelsToTry := []string{"moonshot-v1-8k", "moonshot-v1-32k", "kimi-latest"}
+	endpoints := []string{"https://api.moonshot.cn/v1/chat/completions", "https://api.openai.com/v1/chat/completions"}
+	modelsToTry := []string{"moonshot-v1-8k", "moonshot-v1-32k", "kimi-latest", "gpt-4o-mini"}
 
-	if strings.HasPrefix(key, "sk-") && !strings.HasPrefix(key, "sk-ECl") && len(key) > 40 {
-		endpoint = "https://api.openai.com/v1/chat/completions"
-		modelsToTry = []string{"gpt-4o-mini", "gpt-4o", "gpt-3.5-turbo"}
-	}
+	var errMsgs []string
 
-	for _, mName := range modelsToTry {
-		reqBody := map[string]interface{}{
-			"model": mName,
-			"messages": []map[string]string{
-				{"role": "user", "content": prompt},
-			},
-			"temperature": temperature,
-		}
-		if maxTokens > 0 {
-			reqBody["max_tokens"] = maxTokens
-		}
+	for _, endpoint := range endpoints {
+		for _, mName := range modelsToTry {
+			reqBody := map[string]interface{}{
+				"model": mName,
+				"messages": []map[string]string{
+					{"role": "user", "content": prompt},
+				},
+				"temperature": temperature,
+			}
+			if maxTokens > 0 {
+				reqBody["max_tokens"] = maxTokens
+			}
 
-		bodyBytes, _ := json.Marshal(reqBody)
-		req, err := http.NewRequestWithContext(ctx, "POST", endpoint, bytes.NewBuffer(bodyBytes))
-		if err != nil {
-			return "", err
-		}
+			bodyBytes, _ := json.Marshal(reqBody)
+			req, err := http.NewRequestWithContext(ctx, "POST", endpoint, bytes.NewBuffer(bodyBytes))
+			if err != nil {
+				errMsgs = append(errMsgs, fmt.Sprintf("req build error: %v", err))
+				continue
+			}
 
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("Authorization", "Bearer "+key)
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Authorization", "Bearer "+key)
 
-		resp, err := c.httpClient.Do(req)
-		if err != nil {
-			continue
-		}
+			resp, err := c.httpClient.Do(req)
+			if err != nil {
+				errMsgs = append(errMsgs, fmt.Sprintf("%s/%s error: %v", endpoint, mName, err))
+				continue
+			}
 
-		respBytes, err := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		if err != nil || resp.StatusCode != 200 {
-			slog.Debug("ai: kimi request non-200", "status", resp.StatusCode, "body", string(respBytes))
-			continue
-		}
+			respBytes, err := io.ReadAll(resp.Body)
+			resp.Body.Close()
 
-		var apiResp struct {
-			Choices []struct {
-				Message struct {
-					Content string `json:"content"`
-				} `json:"message"`
-			} `json:"choices"`
-		}
+			if resp.StatusCode != 200 {
+				errMsgs = append(errMsgs, fmt.Sprintf("%s status %d: %s", mName, resp.StatusCode, util.SafeTruncate(string(respBytes), 150)))
+				continue
+			}
 
-		if err := json.Unmarshal(respBytes, &apiResp); err == nil && len(apiResp.Choices) > 0 {
-			content := apiResp.Choices[0].Message.Content
-			if strings.TrimSpace(content) != "" {
-				return content, nil
+			var apiResp struct {
+				Choices []struct {
+					Message struct {
+						Content string `json:"content"`
+					} `json:"message"`
+				} `json:"choices"`
+			}
+
+			if err := json.Unmarshal(respBytes, &apiResp); err == nil && len(apiResp.Choices) > 0 {
+				content := apiResp.Choices[0].Message.Content
+				if strings.TrimSpace(content) != "" {
+					return content, nil
+				}
 			}
 		}
 	}
 
-	return "", fmt.Errorf("kimi call failed for key prefix %s", safeKeyPrefix(key))
+	return "", fmt.Errorf("kimi call failed for key %s: %s", safeKeyPrefix(key), strings.Join(errMsgs, " | "))
 }
 
 func (c *GeminiClient) executeMiniMaxWithPool(ctx context.Context, prompt string, temperature float32, maxTokens int32) (string, error) {
