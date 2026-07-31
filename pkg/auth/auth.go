@@ -123,25 +123,20 @@ func RevokeToken(token string) {
 }
 
 func SeedDefaultUsers(db *gorm.DB) error {
-	var count int64
-	db.Model(&database.User{}).Count(&count)
-	if count > 0 {
-		return nil
-	}
-
-	// Create default Dev user
-	devUser := database.User{
-		Username:         "dev_admin",
-		Email:            "dev@kenerateai.com",
-		PasswordHash:     HashPassword("admin123"),
-		Role:             "dev",
-		TasksCompleted:   0,
-		TasksPending:     0,
-		VerificationRate: 100.0,
-		CreatedAt:        time.Now(),
-	}
-	if err := db.Create(&devUser).Error; err != nil {
-		return err
+	// Create default Dev user if missing
+	var devUser database.User
+	if db.Where("username = ?", "dev_admin").First(&devUser).Error != nil {
+		devUser = database.User{
+			Username:         "dev_admin",
+			Email:            "dev@kenerateai.com",
+			PasswordHash:     HashPassword("admin123"),
+			Role:             "dev",
+			TasksCompleted:   0,
+			TasksPending:     0,
+			VerificationRate: 100.0,
+			CreatedAt:        time.Now(),
+		}
+		db.Create(&devUser)
 	}
 
 	// Create requested Intern users: anu, master, hirtik, anuj
