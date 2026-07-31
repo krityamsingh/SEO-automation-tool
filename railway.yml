@@ -1,0 +1,12 @@
+version: 2
+build:
+  builder: NIXPACKS
+  nixpacksPlan:
+    providers:
+      - go
+deploy:
+  startCommand: ./agent
+  healthcheckPath: /health
+  healthcheckTimeout: 30
+  restartPolicy:
+    maxRetries: 3

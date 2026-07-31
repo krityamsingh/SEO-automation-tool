@@ -1,0 +1,26 @@
+# Binaries
+agent
+*.exe
+*.exe;
+*.dll
+*.so
+*.dylib
+
+# Environment variables
+.env
+*.env.local
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+agent.db
+
+# Test / Scratch / Build logs
+*.log
+scratch/
+
+# IDE / OS files
+.DS_Store
+.idea/
+.vscode/
