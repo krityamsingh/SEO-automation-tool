@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	"aeo_geo_seo_agent/internal/util"
+	"aeo_geo_seo_agent/pkg/util"
 )
 
 // Publisher interfaces for various content platforms

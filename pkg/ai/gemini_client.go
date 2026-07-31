@@ -10,7 +10,7 @@ import (
 	"github.com/google/generative-ai-go/genai"
 	"google.golang.org/api/option"
 
-	"aeo_geo_seo_agent/internal/util"
+	"aeo_geo_seo_agent/pkg/util"
 )
 
 type GeminiClient struct {

@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"aeo_geo_seo_agent/internal/ai"
-	"aeo_geo_seo_agent/internal/rag"
+	"aeo_geo_seo_agent/pkg/ai"
+	"aeo_geo_seo_agent/pkg/rag"
 )
 
 type AgentMessage struct {

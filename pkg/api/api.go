@@ -10,17 +10,17 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
-	"aeo_geo_seo_agent/internal/agent"
-	"aeo_geo_seo_agent/internal/ai"
-	"aeo_geo_seo_agent/internal/auth"
-	"aeo_geo_seo_agent/internal/chat"
-	"aeo_geo_seo_agent/internal/config"
-	"aeo_geo_seo_agent/internal/crawler"
-	"aeo_geo_seo_agent/internal/database"
-	"aeo_geo_seo_agent/internal/notification"
-	"aeo_geo_seo_agent/internal/rag"
-	"aeo_geo_seo_agent/internal/scheduler"
-	"aeo_geo_seo_agent/internal/task"
+	"aeo_geo_seo_agent/pkg/agent"
+	"aeo_geo_seo_agent/pkg/ai"
+	"aeo_geo_seo_agent/pkg/auth"
+	"aeo_geo_seo_agent/pkg/chat"
+	"aeo_geo_seo_agent/pkg/config"
+	"aeo_geo_seo_agent/pkg/crawler"
+	"aeo_geo_seo_agent/pkg/database"
+	"aeo_geo_seo_agent/pkg/notification"
+	"aeo_geo_seo_agent/pkg/rag"
+	"aeo_geo_seo_agent/pkg/scheduler"
+	"aeo_geo_seo_agent/pkg/task"
 )
 
 type Server struct {

@@ -11,11 +11,11 @@ import (
 
 	"gorm.io/gorm"
 
-	"aeo_geo_seo_agent/internal/agent"
-	"aeo_geo_seo_agent/internal/ai"
-	"aeo_geo_seo_agent/internal/crawler"
-	"aeo_geo_seo_agent/internal/database"
-	"aeo_geo_seo_agent/internal/rag"
+	"aeo_geo_seo_agent/pkg/agent"
+	"aeo_geo_seo_agent/pkg/ai"
+	"aeo_geo_seo_agent/pkg/crawler"
+	"aeo_geo_seo_agent/pkg/database"
+	"aeo_geo_seo_agent/pkg/rag"
 )
 
 type TaskEngine struct {

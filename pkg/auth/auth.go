@@ -13,7 +13,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
-	"aeo_geo_seo_agent/internal/database"
+	"aeo_geo_seo_agent/pkg/database"
 )
 
 type Session struct {

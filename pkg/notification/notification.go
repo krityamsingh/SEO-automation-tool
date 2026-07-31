@@ -3,7 +3,7 @@ package notification
 import (
 	"gorm.io/gorm"
 
-	"aeo_geo_seo_agent/internal/database"
+	"aeo_geo_seo_agent/pkg/database"
 )
 
 type Manager struct {

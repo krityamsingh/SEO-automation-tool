@@ -9,10 +9,10 @@ import (
 
 	"gorm.io/gorm"
 
-	"aeo_geo_seo_agent/internal/ai"
-	"aeo_geo_seo_agent/internal/crawler"
-	"aeo_geo_seo_agent/internal/database"
-	"aeo_geo_seo_agent/internal/util"
+	"aeo_geo_seo_agent/pkg/ai"
+	"aeo_geo_seo_agent/pkg/crawler"
+	"aeo_geo_seo_agent/pkg/database"
+	"aeo_geo_seo_agent/pkg/util"
 )
 
 // AEO (Answer Engine Optimization) module

@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"aeo_geo_seo_agent/internal/crawler"
+	"aeo_geo_seo_agent/pkg/crawler"
 )
 
 type DocumentChunk struct {
