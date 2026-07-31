@@ -1,11 +1,14 @@
 package auth
 
 import (
+	"crypto/hmac"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -40,14 +43,18 @@ func VerifyPassword(password, hash string) bool {
 	return HashPassword(password) == hash
 }
 
+const tokenSecret = "kenerateai_serverless_jwt_secret_2026"
+
 func GenerateToken(userID uint, username, role string) string {
-	tokenData := fmt.Sprintf("%d-%s-%s-%d", userID, username, role, time.Now().UnixNano())
-	h := sha256.New()
-	h.Write([]byte(tokenData))
-	token := hex.EncodeToString(h.Sum(nil))
+	payload := fmt.Sprintf("%d|%s|%s|%d", userID, username, role, time.Now().Unix())
+	encoded := base64.RawURLEncoding.EncodeToString([]byte(payload))
+	mac := hmac.New(sha256.New, []byte(tokenSecret))
+	mac.Write([]byte(encoded))
+	signature := hex.EncodeToString(mac.Sum(nil))
+
+	token := encoded + "." + signature
 
 	sessionMu.Lock()
-	defer sessionMu.Unlock()
 	sessions[token] = Session{
 		Token:     token,
 		UserID:    userID,
@@ -55,15 +62,58 @@ func GenerateToken(userID uint, username, role string) string {
 		Role:      role,
 		CreatedAt: time.Now(),
 	}
+	sessionMu.Unlock()
 
 	return token
 }
 
 func GetSession(token string) (Session, bool) {
 	sessionMu.RLock()
-	defer sessionMu.RUnlock()
 	sess, ok := sessions[token]
-	return sess, ok
+	sessionMu.RUnlock()
+	if ok {
+		return sess, true
+	}
+
+	// Stateless verification fallback for Vercel multi-instance lambda execution
+	parts := strings.Split(token, ".")
+	if len(parts) != 2 {
+		return Session{}, false
+	}
+	encodedPayload, sig := parts[0], parts[1]
+
+	mac := hmac.New(sha256.New, []byte(tokenSecret))
+	mac.Write([]byte(encodedPayload))
+	expectedSig := hex.EncodeToString(mac.Sum(nil))
+
+	if !hmac.Equal([]byte(sig), []byte(expectedSig)) {
+		return Session{}, false
+	}
+
+	payloadBytes, err := base64.RawURLEncoding.DecodeString(encodedPayload)
+	if err != nil {
+		return Session{}, false
+	}
+
+	fields := strings.Split(string(payloadBytes), "|")
+	if len(fields) < 3 {
+		return Session{}, false
+	}
+
+	userIDVal, _ := strconv.Atoi(fields[0])
+	sess = Session{
+		Token:     token,
+		UserID:    uint(userIDVal),
+		Username:  fields[1],
+		Role:      fields[2],
+		CreatedAt: time.Now(),
+	}
+
+	sessionMu.Lock()
+	sessions[token] = sess
+	sessionMu.Unlock()
+
+	return sess, true
 }
 
 func RevokeToken(token string) {
