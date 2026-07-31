@@ -10,7 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log/slog"
+	"golang.org/x/exp/slog"
 	"net/http"
 	"strings"
 	"time"

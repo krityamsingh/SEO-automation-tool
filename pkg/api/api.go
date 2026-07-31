@@ -2,7 +2,7 @@ package api
 
 import (
 	"context"
-	"log/slog"
+	"golang.org/x/exp/slog"
 	"net/http"
 	"strconv"
 	"time"

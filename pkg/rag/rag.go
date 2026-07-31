@@ -3,7 +3,7 @@ package rag
 import (
 	"context"
 	"fmt"
-	"log/slog"
+	"golang.org/x/exp/slog"
 	"math"
 	"strings"
 	"sync"
