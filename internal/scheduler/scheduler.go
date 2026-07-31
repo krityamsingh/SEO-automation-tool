@@ -11,12 +11,14 @@ import (
 	"gorm.io/gorm"
 
 	"aeo_geo_seo_agent/internal/aeo"
+	"aeo_geo_seo_agent/internal/agent"
 	"aeo_geo_seo_agent/internal/ai"
 	"aeo_geo_seo_agent/internal/config"
 	"aeo_geo_seo_agent/internal/crawler"
 	"aeo_geo_seo_agent/internal/database"
 	"aeo_geo_seo_agent/internal/geo"
 	"aeo_geo_seo_agent/internal/publisher"
+	"aeo_geo_seo_agent/internal/rag"
 	"aeo_geo_seo_agent/internal/scriptwriter"
 	"aeo_geo_seo_agent/internal/seo"
 )
@@ -32,12 +34,17 @@ type Scheduler struct {
 	aeo           *aeo.Engine
 	geo           *geo.Engine
 	publishers    *publisher.PublisherRegistry
+	rag           *rag.RAGEngine
+	multiAgent    *agent.MultiAgentOrchestrator
 	ctx           context.Context
 	cancel        context.CancelFunc
 }
 
 func New(cfg *config.Config, gemini *ai.GeminiClient, crawler *crawler.Crawler, seoEngine *seo.Engine, writer *scriptwriter.Writer, aeoEngine *aeo.Engine, geoEngine *geo.Engine, publishers *publisher.PublisherRegistry, db *gorm.DB) *Scheduler {
 	ctx, cancel := context.WithCancel(context.Background())
+	ragEngine := rag.New(crawler)
+	multiAgent := agent.NewMultiAgentOrchestrator(gemini, ragEngine)
+
 	return &Scheduler{
 		cron:       cron.New(),
 		cfg:        cfg,
@@ -48,6 +55,8 @@ func New(cfg *config.Config, gemini *ai.GeminiClient, crawler *crawler.Crawler, 
 		aeo:        aeoEngine,
 		geo:        geoEngine,
 		publishers: publishers,
+		rag:        ragEngine,
+		multiAgent: multiAgent,
 		db:         db,
 		ctx:        ctx,
 		cancel:     cancel,
@@ -196,8 +205,8 @@ func (s *Scheduler) phaseContentCreation() {
 		var keyword database.Keyword
 		s.db.First(&keyword, idea.KeywordID)
 		
-		// Generate blog post
-		post, err := s.gemini.GenerateBlogPost(s.ctx, idea.Title, []string{keyword.Keyword}, s.cfg.ContentMinWords, s.cfg.ContentMaxWords)
+		// Generate blog post using Multi-Agent Peer Collaboration & RAG Knowledge Retrieval
+		post, err := s.multiAgent.CollaborateAndGenerate(s.ctx, idea.Title, []string{keyword.Keyword}, s.cfg.ContentMinWords, s.cfg.ContentMaxWords)
 		if err != nil {
 			slog.Error("blog generation failed", "idea", idea.Title, "error", err)
 			continue

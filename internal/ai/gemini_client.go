@@ -409,16 +409,37 @@ type KeywordSuggestion struct {
 	TrendScore           int    `json:"trend_score"`
 }
 
+type FlexibleStringArray []string
+
+func (f *FlexibleStringArray) UnmarshalJSON(data []byte) error {
+	var arr []string
+	if err := json.Unmarshal(data, &arr); err == nil {
+		*f = arr
+		return nil
+	}
+	var str string
+	if err := json.Unmarshal(data, &str); err == nil {
+		if str != "" {
+			*f = []string{str}
+		} else {
+			*f = []string{}
+		}
+		return nil
+	}
+	*f = []string{}
+	return nil
+}
+
 type BlogPostResult struct {
-	Title           string            `json:"title"`
-	MetaDescription string            `json:"meta_description"`
-	TLDR            string            `json:"tldr"`
-	TableOfContents []string          `json:"table_of_contents"`
-	Body            string            `json:"body"`
-	FAQ             []FAQItem         `json:"faq"`
-	Takeaways       []string          `json:"takeaways"`
-	InternalLinks   []string          `json:"internal_links"`
-	CTA             string            `json:"cta"`
+	Title           string              `json:"title"`
+	MetaDescription string              `json:"meta_description"`
+	TLDR            string              `json:"tldr"`
+	TableOfContents FlexibleStringArray `json:"table_of_contents"`
+	Body            string              `json:"body"`
+	FAQ             []FAQItem           `json:"faq"`
+	Takeaways       FlexibleStringArray `json:"takeaways"`
+	InternalLinks   FlexibleStringArray `json:"internal_links"`
+	CTA             string              `json:"cta"`
 }
 
 type FAQItem struct {
