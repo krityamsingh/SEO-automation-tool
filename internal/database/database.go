@@ -18,12 +18,15 @@ func Connect(databaseURL string) (*gorm.DB, error) {
 
 	if strings.HasPrefix(databaseURL, "sqlite://") {
 		path := strings.TrimPrefix(databaseURL, "sqlite://")
+		if !strings.Contains(path, "?") {
+			path += "?_journal_mode=WAL&_busy_timeout=5000"
+		}
 		dialector = sqlite.Open(path)
 	} else if strings.HasPrefix(databaseURL, "postgres://") || strings.HasPrefix(databaseURL, "postgresql://") {
 		dialector = postgres.Open(databaseURL)
 	} else {
-		// Default to SQLite
-		dialector = sqlite.Open("agent.db")
+		// Default to SQLite with WAL mode
+		dialector = sqlite.Open("agent.db?_journal_mode=WAL&_busy_timeout=5000")
 	}
 
 	db, err := gorm.Open(dialector, &gorm.Config{

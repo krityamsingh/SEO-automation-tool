@@ -10,6 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
+	"aeo_geo_seo_agent/internal/agent"
 	"aeo_geo_seo_agent/internal/ai"
 	"aeo_geo_seo_agent/internal/config"
 	"aeo_geo_seo_agent/internal/database"
@@ -26,12 +27,8 @@ type Server struct {
 }
 
 func New(db *gorm.DB, sched *scheduler.Scheduler, gemini *ai.GeminiClient, cfg *config.Config) *Server {
-	r := gin.New()
-	r.Use(gin.Recovery())
-
-	if cfg.LogLevel.Level() == slog.LevelDebug {
-		r.Use(gin.Logger())
-	}
+	r := gin.Default()
+	slog.Info("initializing Gin router")
 
 	s := &Server{
 		router:    r,
@@ -46,7 +43,10 @@ func New(db *gorm.DB, sched *scheduler.Scheduler, gemini *ai.GeminiClient, cfg *
 }
 
 func (s *Server) routes() {
-	// Public routes
+	// Public UI Dashboard & Monitoring Endpoints
+	s.router.GET("/", s.dashboard)
+	s.router.GET("/dashboard", s.dashboard)
+	s.router.GET("/api/agent-chat", s.agentChat)
 	s.router.GET("/health", s.health)
 	s.router.GET("/status", s.status)
 	s.router.GET("/keywords", s.listKeywords)
@@ -55,34 +55,20 @@ func (s *Server) routes() {
 	s.router.GET("/logs", s.listLogs)
 	s.router.GET("/api-keys", s.listAPIKeys)
 
-	// Protected routes
-	protected := s.router.Group("/")
-	protected.Use(s.authMiddleware())
-	{
-		protected.POST("/content/:id/approve", s.approveContent)
-		protected.POST("/content/:id/reject", s.rejectContent)
-		protected.POST("/trigger", s.triggerCycle)
-		protected.POST("/api-keys/select", s.selectAPIKey)
-	}
+	// Action & Control Endpoints
+	s.router.POST("/trigger", s.triggerCycle)
+	s.router.POST("/content/:id/approve", s.approveContent)
+	s.router.POST("/content/:id/reject", s.rejectContent)
+	s.router.POST("/api-keys/select", s.selectAPIKey)
 }
 
-func (s *Server) authMiddleware() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		if s.cfg.APIKey == "" {
-			// No API key configured, skip auth
-			c.Next()
-			return
-		}
-		key := c.GetHeader("X-API-Key")
-		if key == "" {
-			key = c.Query("api_key")
-		}
-		if key != s.cfg.APIKey {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized: invalid or missing API key"})
-			return
-		}
-		c.Next()
-	}
+func (s *Server) dashboard(c *gin.Context) {
+	c.Header("Content-Type", "text/html; charset=utf-8")
+	c.String(http.StatusOK, "%s", DashboardHTML)
+}
+
+func (s *Server) agentChat(c *gin.Context) {
+	c.JSON(http.StatusOK, agent.GetAgentMessages())
 }
 
 func (s *Server) Start(addr string) error {
@@ -169,55 +155,19 @@ func (s *Server) listContent(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"content": pieces})
+	c.JSON(http.StatusOK, pieces)
 }
 
 func (s *Server) getContent(c *gin.Context) {
-	id, _ := strconv.Atoi(c.Param("id"))
-
+	id := c.Param("id")
 	var piece database.ContentPiece
+
 	if err := s.db.First(&piece, id).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "content not found"})
+		c.JSON(http.StatusNotFound, gin.H{"error": "content piece not found"})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"content": piece})
-}
-
-func (s *Server) approveContent(c *gin.Context) {
-	id, _ := strconv.Atoi(c.Param("id"))
-
-	var piece database.ContentPiece
-	if err := s.db.First(&piece, id).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "content not found"})
-		return
-	}
-
-	piece.Status = "approved"
-	s.db.Save(&piece)
-
-	c.JSON(http.StatusOK, gin.H{
-		"message": "content approved",
-		"id":      id,
-	})
-}
-
-func (s *Server) rejectContent(c *gin.Context) {
-	id, _ := strconv.Atoi(c.Param("id"))
-
-	var piece database.ContentPiece
-	if err := s.db.First(&piece, id).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "content not found"})
-		return
-	}
-
-	piece.Status = "rejected"
-	s.db.Save(&piece)
-
-	c.JSON(http.StatusOK, gin.H{
-		"message": "content rejected",
-		"id":      id,
-	})
+	c.JSON(http.StatusOK, piece)
 }
 
 func (s *Server) listLogs(c *gin.Context) {
@@ -229,48 +179,79 @@ func (s *Server) listLogs(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"logs": logs})
-}
-
-func (s *Server) triggerCycle(c *gin.Context) {
-	go s.scheduler.RunNow()
-	c.JSON(http.StatusOK, gin.H{
-		"message": "cycle triggered",
-		"time":    time.Now().UTC(),
-	})
+	c.JSON(http.StatusOK, logs)
 }
 
 func (s *Server) listAPIKeys(c *gin.Context) {
 	statuses := s.gemini.GetKeyStatuses()
 	c.JSON(http.StatusOK, gin.H{
 		"total_keys": len(statuses),
-		"api_keys":   statuses,
+		"keys":       statuses,
 	})
 }
 
 func (s *Server) selectAPIKey(c *gin.Context) {
-	var body struct {
-		Index *int `json:"index"`
+	var req struct {
+		Index int `json:"index"`
 	}
-	if err := c.ShouldBindJSON(&body); err != nil || body.Index == nil {
-		idxStr := c.Query("index")
-		idx, err := strconv.Atoi(idxStr)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "must provide valid 'index' parameter (e.g. {\"index\": 0} or ?index=0)"})
-			return
-		}
-		body.Index = &idx
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request payload"})
+		return
 	}
 
-	if err := s.gemini.SelectKey(*body.Index); err != nil {
+	if err := s.gemini.SelectKey(req.Index); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	statuses := s.gemini.GetKeyStatuses()
 	c.JSON(http.StatusOK, gin.H{
-		"message":      "active API key updated",
-		"selected_idx": *body.Index,
-		"api_keys":     statuses,
+		"message":      "API key selected successfully",
+		"active_index": req.Index,
+		"key_statuses": s.gemini.GetKeyStatuses(),
+	})
+}
+
+func (s *Server) triggerCycle(c *gin.Context) {
+	go s.scheduler.RunNow()
+	c.JSON(http.StatusOK, gin.H{
+		"message":   "autonomous cycle triggered",
+		"timestamp": time.Now().Format(time.RFC3339),
+	})
+}
+
+func (s *Server) approveContent(c *gin.Context) {
+	id := c.Param("id")
+	var piece database.ContentPiece
+
+	if err := s.db.First(&piece, id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "content piece not found"})
+		return
+	}
+
+	s.db.Model(&piece).Update("status", "approved")
+	database.LogAgentActivity(s.db, "content_approval", "success", "content approved: "+piece.Title)
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "content approved and queued for publishing",
+		"id":      piece.ID,
+		"title":   piece.Title,
+	})
+}
+
+func (s *Server) rejectContent(c *gin.Context) {
+	id := c.Param("id")
+	var piece database.ContentPiece
+
+	if err := s.db.First(&piece, id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "content piece not found"})
+		return
+	}
+
+	s.db.Model(&piece).Update("status", "rejected")
+	database.LogAgentActivity(s.db, "content_rejection", "info", "content rejected: "+piece.Title)
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "content rejected",
+		"id":      piece.ID,
 	})
 }

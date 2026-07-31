@@ -69,8 +69,11 @@ func (s *Scheduler) Start(ctx context.Context) {
 	// Register the main cycle job
 	s.cron.AddFunc(fmt.Sprintf("0 */%d * * *", int(s.cfg.AgentCycleHours.Hours())), s.runCycle)
 	
-	// Also run immediately on start
-	go s.runCycle()
+	// Also run on start in background after server binds
+	go func() {
+		time.Sleep(1 * time.Second)
+		s.runCycle()
+	}()
 	
 	s.cron.Start()
 	slog.Info("scheduler started", "cycle_hours", s.cfg.AgentCycleHours.Hours())
