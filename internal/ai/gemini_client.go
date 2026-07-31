@@ -50,12 +50,30 @@ func (c *GeminiClient) GenerateText(ctx context.Context, prompt string, temperat
 		return "", fmt.Errorf("text model not configured")
 	}
 
-	model := c.client.GenerativeModel(c.textModel.Name)
+	modelName := strings.TrimPrefix(c.textModel.Name, "models/")
+	model := c.client.GenerativeModel(modelName)
 	model.SetTemperature(temperature)
 	model.SetMaxOutputTokens(maxTokens)
 
-	resp, err := model.GenerateContent(ctx, genai.Text(prompt))
-	if err != nil {
+	var resp *genai.GenerateContentResponse
+	var err error
+
+	retryFn := func() error {
+		res, genErr := model.GenerateContent(ctx, genai.Text(prompt))
+		if genErr != nil {
+			return genErr
+		}
+		if len(res.Candidates) == 0 {
+			slog.Warn("gemini returned 0 candidates")
+			return fmt.Errorf("gemini returned 0 candidates")
+		}
+		resp = res
+		return nil
+	}
+
+	retryCfg := util.DefaultRetryConfig()
+	retryCfg.MaxRetries = 3
+	if err = util.WithRetry(ctx, retryCfg, "gemini_generate_text", retryFn); err != nil {
 		return "", fmt.Errorf("gemini text generation failed: %w", err)
 	}
 
@@ -80,7 +98,8 @@ func (c *GeminiClient) GenerateStructured(ctx context.Context, prompt string, sc
 		return nil, fmt.Errorf("text model not configured")
 	}
 
-	model := c.client.GenerativeModel(c.textModel.Name)
+	modelName := strings.TrimPrefix(c.textModel.Name, "models/")
+	model := c.client.GenerativeModel(modelName)
 	model.SetTemperature(0.2)
 	model.SetMaxOutputTokens(4096)
 	model.ResponseMIMEType = "application/json"
@@ -147,7 +166,7 @@ Requirements:
 9. Internal linking suggestions (3-5)
 10. Natural keyword usage, no stuffing
 
-Format as JSON:
+Format as JSON (Respond ONLY with raw JSON, no markdown formatting or commentary):
 {
   "title": "...",
   "meta_description": "...",

@@ -1,23 +1,63 @@
 package util
 
 import (
+	"encoding/json"
 	"strings"
 )
 
-// ExtractJSON extracts the first JSON object or array from text that may contain
-// non-JSON content (like markdown formatting from LLM responses).
+// ExtractJSON extracts the first valid JSON object or array from text that may contain
+// markdown formatting (e.g. ```json ... ```) or conversational preamble/postscript.
 func ExtractJSON(text string) string {
-	start := strings.Index(text, "[")
-	end := strings.LastIndex(text, "]")
-	if start != -1 && end != -1 && end > start {
-		return text[start : end+1]
+	cleaned := strings.TrimSpace(text)
+
+	// Strip markdown code fences if present
+	if strings.HasPrefix(cleaned, "```") {
+		lines := strings.Split(cleaned, "\n")
+		if len(lines) >= 2 {
+			if strings.HasPrefix(lines[0], "```") {
+				lines = lines[1:]
+			}
+			if len(lines) > 0 && strings.HasPrefix(lines[len(lines)-1], "```") {
+				lines = lines[:len(lines)-1]
+			}
+			cleaned = strings.TrimSpace(strings.Join(lines, "\n"))
+		}
 	}
-	start = strings.Index(text, "{")
-	end = strings.LastIndex(text, "}")
-	if start != -1 && end != -1 && end > start {
-		return text[start : end+1]
+
+	// Try direct validation first
+	if json.Valid([]byte(cleaned)) {
+		return cleaned
 	}
-	return text
+
+	// Search for JSON Object {...}
+	objStart := strings.Index(cleaned, "{")
+	objEnd := strings.LastIndex(cleaned, "}")
+	if objStart != -1 && objEnd != -1 && objEnd > objStart {
+		candidate := cleaned[objStart : objEnd+1]
+		if json.Valid([]byte(candidate)) {
+			return candidate
+		}
+	}
+
+	// Search for JSON Array [...]
+	arrStart := strings.Index(cleaned, "[")
+	arrEnd := strings.LastIndex(cleaned, "]")
+	if arrStart != -1 && arrEnd != -1 && arrEnd > arrStart {
+		candidate := cleaned[arrStart : arrEnd+1]
+		if json.Valid([]byte(candidate)) {
+			return candidate
+		}
+	}
+
+	// Fallbacks if formatting is slightly loose
+	if objStart != -1 && objEnd != -1 && objEnd > objStart {
+		return cleaned[objStart : objEnd+1]
+	}
+	if arrStart != -1 && arrEnd != -1 && arrEnd > arrStart {
+		return cleaned[arrStart : arrEnd+1]
+	}
+
+	return cleaned
 }
 
 // SafeTruncate truncates a string to maxLen characters without panicking.

@@ -57,8 +57,8 @@ func Load() *Config {
 	_ = godotenv.Load()
 
 	cfg := &Config{
-		GeminiAPIKey:      require("GEMINI_API_KEY"),
-		GeminiTextModel:   getDefault("GEMINI_TEXT_MODEL", "gemini-2.5-pro"),
+		GeminiAPIKey:      getAPIKey(),
+		GeminiTextModel:   getDefault("GEMINI_TEXT_MODEL", "gemini-flash-latest"),
 		GeminiImageModel:  getDefault("GEMINI_IMAGE_MODEL", "gemini-2.5-flash-image"),
 		AgentNiches:       split(getDefault("AGENT_NICHES", "technology,saas,ai")),
 		AgentCycleHours:   parseDuration(getDefault("AGENT_CYCLE_HOURS", "6")) * time.Hour,
@@ -94,6 +94,16 @@ func require(key string) string {
 		panic("required env var missing: " + key)
 	}
 	return v
+}
+
+func getAPIKey() string {
+	if keys := os.Getenv("GEMINI_API_KEYS"); keys != "" {
+		return keys
+	}
+	if key := os.Getenv("GEMINI_API_KEY"); key != "" {
+		return key
+	}
+	panic("required env var missing: GEMINI_API_KEY or GEMINI_API_KEYS")
 }
 
 func getDefault(key, def string) string {
