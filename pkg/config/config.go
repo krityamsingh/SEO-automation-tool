@@ -155,6 +155,7 @@ func parseAPIKeyPools() (gemini []string, kimi []string, minimax []string) {
 	}
 
 	for _, raw := range sources {
+		raw = strings.Trim(strings.TrimSpace(raw), "\"'")
 		if raw == "" {
 			continue
 		}

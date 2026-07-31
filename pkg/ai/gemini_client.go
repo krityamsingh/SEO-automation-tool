@@ -705,6 +705,7 @@ func (c *GeminiClient) extractJSON(text string) string {
 }
 
 func parseKeysFromString(raw string) (gemini []string, kimi []string, minimax []string) {
+	raw = strings.Trim(strings.TrimSpace(raw), "\"'")
 	if decoded, err := base64.StdEncoding.DecodeString(raw); err == nil && len(decoded) > 0 {
 		raw = string(decoded)
 	}
