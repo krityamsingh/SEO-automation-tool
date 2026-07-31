@@ -1,6 +1,7 @@
 package genai
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -104,7 +105,7 @@ type KeyStatus struct {
 
 func (m *GenerativeModel) GenerateContent(ctx context.Context, parts ...Part) (*GenerateContentResponse, error) {
 	if m.client == nil || len(m.client.apiKeys) == 0 {
-		return nil, fmt.Errorf("gemini client API keys pool is empty")
+		return nil, fmt.Errorf("API keys pool is empty")
 	}
 
 	modelName := strings.TrimPrefix(m.Name, "models/")
@@ -130,7 +131,25 @@ func (m *GenerativeModel) GenerateContent(ctx context.Context, parts ...Part) (*
 		var resp *http.Response
 		var err error
 
-		if provider == "minimax" {
+		if provider == "kimi" {
+			// Call TokenRouter Kimi K3 API with streaming
+			url := "https://api.tokenrouter.com/v1/chat/completions"
+			kimiPayload := map[string]interface{}{
+				"model": "moonshotai/kimi-k3-free",
+				"messages": []map[string]string{
+					{"role": "user", "content": promptText.String()},
+				},
+				"stream": true,
+			}
+			jsonBytes, _ := json.Marshal(kimiPayload)
+			req, reqErr := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonBytes))
+			if reqErr != nil {
+				return nil, reqErr
+			}
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Authorization", "Bearer "+apiKey)
+			resp, err = m.client.httpClient.Do(req)
+		} else if provider == "minimax" {
 			// Call MiniMax API
 			url := "https://api.minimaxi.chat/v1/chat/completions"
 			mmPayload := map[string]interface{}{
@@ -181,21 +200,78 @@ func (m *GenerativeModel) GenerateContent(ctx context.Context, parts ...Part) (*
 			continue
 		}
 
-		bodyBytes, err := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		if err != nil {
-			lastErr = fmt.Errorf("failed to read response body: %w", err)
-			m.client.RotateKey()
-			continue
-		}
-
 		if resp.StatusCode >= 400 {
+			bodyBytes, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
 			lastErr = fmt.Errorf("API error (HTTP %d): %s", resp.StatusCode, string(bodyBytes))
 			slog.Warn("API key error/quota failure, auto-shifting to next key",
 				"provider", provider,
 				"key_mask", maskKey(apiKey),
 				"http_status", resp.StatusCode,
 				"error", string(bodyBytes))
+			m.client.RotateKey()
+			continue
+		}
+
+		if provider == "kimi" {
+			// Process Kimi SSE Stream
+			reader := bufio.NewReader(resp.Body)
+			var fullContent strings.Builder
+
+			for {
+				line, readErr := reader.ReadString('\n')
+				line = strings.TrimSpace(line)
+
+				if strings.HasPrefix(line, "data: ") {
+					dataStr := strings.TrimPrefix(line, "data: ")
+					if dataStr == "[DONE]" {
+						break
+					}
+
+					var chunk struct {
+						Choices []struct {
+							Delta struct {
+								Content string `json:"content"`
+							} `json:"delta"`
+						} `json:"choices"`
+					}
+					if err := json.Unmarshal([]byte(dataStr), &chunk); err == nil {
+						if len(chunk.Choices) > 0 && chunk.Choices[0].Delta.Content != "" {
+							fullContent.WriteString(chunk.Choices[0].Delta.Content)
+						}
+					}
+				}
+
+				if readErr != nil {
+					break
+				}
+			}
+			resp.Body.Close()
+
+			resStr := strings.TrimSpace(fullContent.String())
+			if resStr == "" {
+				lastErr = fmt.Errorf("Kimi K3 returned empty text stream")
+				m.client.RotateKey()
+				continue
+			}
+
+			slog.Info("Kimi K3 (Max Rate Model) generated output successfully", "key_mask", maskKey(apiKey), "chars", len(resStr))
+			return &GenerateContentResponse{
+				Candidates: []*Candidate{
+					{
+						Content: &Content{
+							Parts: []Part{Text(resStr)},
+							Role:  "model",
+						},
+					},
+				},
+			}, nil
+		}
+
+		bodyBytes, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			lastErr = fmt.Errorf("failed to read response body: %w", err)
 			m.client.RotateKey()
 			continue
 		}
@@ -283,19 +359,34 @@ func NewClient(ctx context.Context, opts ...option.ClientOption) (*Client, error
 	rawKeys = strings.ReplaceAll(rawKeys, "\r", ",")
 	rawKeys = strings.ReplaceAll(rawKeys, " ", ",")
 	parts := strings.Split(rawKeys, ",")
-	var apiKeys []string
+
+	var kimiKeys []string
+	var geminiKeys []string
+	var minimaxKeys []string
+
 	for _, p := range parts {
 		p = strings.TrimSpace(p)
-		if p != "" && !strings.HasPrefix(p, "xai-") { // Filter out any xai keys
-			apiKeys = append(apiKeys, p)
+		if p == "" || strings.HasPrefix(p, "xai-") {
+			continue
+		}
+		provider := getProvider(p)
+		if provider == "kimi" {
+			kimiKeys = append(kimiKeys, p)
+		} else if provider == "minimax" {
+			minimaxKeys = append(minimaxKeys, p)
+		} else {
+			geminiKeys = append(geminiKeys, p)
 		}
 	}
+
+	// Priority sorting: Kimi (MAX Priority) -> Gemini -> MiniMax
+	apiKeys := append(kimiKeys, append(geminiKeys, minimaxKeys...)...)
 
 	if len(apiKeys) == 0 {
 		return nil, fmt.Errorf("no valid API keys provided")
 	}
 
-	slog.Info("initialized API key rotation pool", "total_keys", len(apiKeys))
+	slog.Info("initialized API key rotation pool", "total_keys", len(apiKeys), "kimi_keys", len(kimiKeys), "gemini_keys", len(geminiKeys), "minimax_keys", len(minimaxKeys))
 
 	return &Client{
 		apiKeys: apiKeys,
@@ -358,6 +449,9 @@ func (c *Client) Close() error {
 }
 
 func getProvider(key string) string {
+	if strings.HasPrefix(key, "sk-EClP") || strings.Contains(key, "sk-EClPnd9wt") {
+		return "kimi"
+	}
 	if strings.HasPrefix(key, "sk-api-") {
 		return "minimax"
 	}
