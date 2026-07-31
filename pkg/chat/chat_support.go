@@ -3,7 +3,7 @@ package chat
 import (
 	"context"
 	"fmt"
-	"log/slog"
+	"golang.org/x/exp/slog"
 
 	"gorm.io/gorm"
 

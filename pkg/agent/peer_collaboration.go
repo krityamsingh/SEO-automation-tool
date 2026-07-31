@@ -3,7 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
-	"log/slog"
+	"golang.org/x/exp/slog"
 	"strings"
 	"sync"
 	"time"

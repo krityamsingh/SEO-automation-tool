@@ -3,7 +3,7 @@ package config
 import (
 	"encoding/base64"
 	"fmt"
-	"log/slog"
+	"golang.org/x/exp/slog"
 	"os"
 	"strconv"
 	"strings"

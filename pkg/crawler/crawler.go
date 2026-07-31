@@ -2,7 +2,7 @@ package crawler
 
 import (
 	"fmt"
-	"log/slog"
+	"golang.org/x/exp/slog"
 	"net/url"
 	"strings"
 	"sync"
