@@ -1,6 +1,7 @@
 package gin
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 )
@@ -91,6 +92,13 @@ func (c *Context) Next() {
 		c.handlers[c.index](c)
 		c.index++
 	}
+}
+
+func (c *Context) ShouldBindJSON(obj interface{}) error {
+	if c.Request != nil && c.Request.Body != nil {
+		return json.NewDecoder(c.Request.Body).Decode(obj)
+	}
+	return fmt.Errorf("empty request body")
 }
 
 func (c *Context) AbortWithStatusJSON(code int, jsonObj interface{}) {

@@ -60,8 +60,8 @@ func (m *GenerativeModel) SetMaxOutputTokens(tokens int32) {
 }
 
 type restRequest struct {
-	Contents         []restContent          `json:"contents"`
-	GenerationConfig *restGenerationConfig  `json:"generationConfig,omitempty"`
+	Contents         []restContent         `json:"contents"`
+	GenerationConfig *restGenerationConfig `json:"generationConfig,omitempty"`
 }
 
 type restContent struct {
@@ -95,6 +95,13 @@ type restResponse struct {
 	} `json:"error,omitempty"`
 }
 
+type KeyStatus struct {
+	Index    int    `json:"index"`
+	KeyMask  string `json:"key_mask"`
+	Provider string `json:"provider"`
+	IsActive bool   `json:"is_active"`
+}
+
 func (m *GenerativeModel) GenerateContent(ctx context.Context, parts ...Part) (*GenerateContentResponse, error) {
 	if m.client == nil || len(m.client.apiKeys) == 0 {
 		return nil, fmt.Errorf("gemini client API keys pool is empty")
@@ -102,56 +109,74 @@ func (m *GenerativeModel) GenerateContent(ctx context.Context, parts ...Part) (*
 
 	modelName := strings.TrimPrefix(m.Name, "models/")
 
-	var restParts []restPart
+	var promptText strings.Builder
 	for _, p := range parts {
 		if t, ok := p.(Text); ok {
-			restParts = append(restParts, restPart{Text: string(t)})
+			promptText.WriteString(string(t))
 		}
-	}
-
-	reqBody := restRequest{
-		Contents: []restContent{
-			{
-				Role:  "user",
-				Parts: restParts,
-			},
-		},
-	}
-
-	if m.Temperature > 0 || m.MaxOutputTokens > 0 || m.ResponseMIMEType != "" {
-		reqBody.GenerationConfig = &restGenerationConfig{
-			Temperature:      m.Temperature,
-			MaxOutputTokens:  m.MaxOutputTokens,
-			ResponseMIMEType: m.ResponseMIMEType,
-		}
-	}
-
-	jsonBytes, err := json.Marshal(reqBody)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
 	maxAttempts := len(m.client.apiKeys)
 	if maxAttempts < 3 {
-		maxAttempts = 3 // at least try retries
+		maxAttempts = 3
 	}
 
 	var lastErr error
 
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 		apiKey := m.client.GetKey()
-		url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s", modelName, apiKey)
+		provider := getProvider(apiKey)
 
-		req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonBytes))
-		if err != nil {
-			return nil, fmt.Errorf("failed to create request: %w", err)
+		var resp *http.Response
+		var err error
+
+		if provider == "minimax" {
+			// Call MiniMax API
+			url := "https://api.minimaxi.chat/v1/chat/completions"
+			mmPayload := map[string]interface{}{
+				"model": "MiniMax-M3",
+				"messages": []map[string]string{
+					{"role": "user", "content": promptText.String()},
+				},
+			}
+			jsonBytes, _ := json.Marshal(mmPayload)
+			req, reqErr := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonBytes))
+			if reqErr != nil {
+				return nil, reqErr
+			}
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Authorization", "Bearer "+apiKey)
+			resp, err = m.client.httpClient.Do(req)
+		} else {
+			// Call Google Gemini API
+			url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s", modelName, apiKey)
+			reqBody := restRequest{
+				Contents: []restContent{
+					{
+						Role:  "user",
+						Parts: []restPart{{Text: promptText.String()}},
+					},
+				},
+			}
+			if m.Temperature > 0 || m.MaxOutputTokens > 0 || m.ResponseMIMEType != "" {
+				reqBody.GenerationConfig = &restGenerationConfig{
+					Temperature:      m.Temperature,
+					MaxOutputTokens:  m.MaxOutputTokens,
+					ResponseMIMEType: m.ResponseMIMEType,
+				}
+			}
+			jsonBytes, _ := json.Marshal(reqBody)
+			req, reqErr := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonBytes))
+			if reqErr != nil {
+				return nil, reqErr
+			}
+			req.Header.Set("Content-Type", "application/json")
+			resp, err = m.client.httpClient.Do(req)
 		}
-		req.Header.Set("Content-Type", "application/json")
 
-		resp, err := m.client.httpClient.Do(req)
 		if err != nil {
-			lastErr = fmt.Errorf("gemini HTTP request failed: %w", err)
-			slog.Warn("gemini API HTTP error, attempting key rotation", "error", lastErr)
+			lastErr = fmt.Errorf("HTTP request failed: %w", err)
+			slog.Warn("API HTTP request failed, auto-rotating key", "provider", provider, "key_mask", maskKey(apiKey), "error", lastErr)
 			m.client.RotateKey()
 			continue
 		}
@@ -164,25 +189,52 @@ func (m *GenerativeModel) GenerateContent(ctx context.Context, parts ...Part) (*
 			continue
 		}
 
-		if resp.StatusCode == 429 || resp.StatusCode == 403 || resp.StatusCode == 401 || resp.StatusCode >= 500 {
-			lastErr = fmt.Errorf("gemini API error (HTTP %d): %s", resp.StatusCode, string(bodyBytes))
-			slog.Warn("gemini API key rate limited or error, auto-rotating to next key in pool",
+		if resp.StatusCode >= 400 {
+			lastErr = fmt.Errorf("API error (HTTP %d): %s", resp.StatusCode, string(bodyBytes))
+			slog.Warn("API key quota/rate limit/error, auto-shifting to next API key",
+				"provider", provider,
+				"key_mask", maskKey(apiKey),
 				"http_status", resp.StatusCode,
-				"total_keys", len(m.client.apiKeys),
 				"error", string(bodyBytes))
 			m.client.RotateKey()
 			continue
 		}
 
+		if provider == "minimax" {
+			var mmResp struct {
+				Choices []struct {
+					Message struct {
+						Content string `json:"content"`
+					} `json:"message"`
+				} `json:"choices"`
+			}
+			if err := json.Unmarshal(bodyBytes, &mmResp); err != nil || len(mmResp.Choices) == 0 {
+				lastErr = fmt.Errorf("failed to decode MiniMax response: %s", string(bodyBytes))
+				m.client.RotateKey()
+				continue
+			}
+			res := &GenerateContentResponse{
+				Candidates: []*Candidate{
+					{
+						Content: &Content{
+							Parts: []Part{Text(mmResp.Choices[0].Message.Content)},
+							Role:  "model",
+						},
+					},
+				},
+			}
+			return res, nil
+		}
+
 		var apiResp restResponse
 		if err := json.Unmarshal(bodyBytes, &apiResp); err != nil {
-			lastErr = fmt.Errorf("failed to decode gemini API response: %w", err)
+			lastErr = fmt.Errorf("failed to decode Gemini API response: %w", err)
 			continue
 		}
 
 		if apiResp.Error != nil {
-			lastErr = fmt.Errorf("gemini API error (%d %s): %s", apiResp.Error.Code, apiResp.Error.Status, apiResp.Error.Message)
-			slog.Warn("gemini API returned error, auto-rotating key", "error", apiResp.Error.Message)
+			lastErr = fmt.Errorf("Gemini API error (%d %s): %s", apiResp.Error.Code, apiResp.Error.Status, apiResp.Error.Message)
+			slog.Warn("Gemini API error, auto-shifting key", "key_mask", maskKey(apiKey), "error", apiResp.Error.Message)
 			m.client.RotateKey()
 			continue
 		}
@@ -227,7 +279,6 @@ func NewClient(ctx context.Context, opts ...option.ClientOption) (*Client, error
 		}
 	}
 
-	// Parse keys separated by comma, newline, or space
 	rawKeys = strings.ReplaceAll(rawKeys, "\n", ",")
 	rawKeys = strings.ReplaceAll(rawKeys, "\r", ",")
 	rawKeys = strings.ReplaceAll(rawKeys, " ", ",")
@@ -241,10 +292,10 @@ func NewClient(ctx context.Context, opts ...option.ClientOption) (*Client, error
 	}
 
 	if len(apiKeys) == 0 {
-		return nil, fmt.Errorf("no valid Gemini API keys provided")
+		return nil, fmt.Errorf("no valid API keys provided")
 	}
 
-	slog.Info("initialized Gemini client with API key pool", "key_count", len(apiKeys))
+	slog.Info("initialized API key rotation pool", "total_keys", len(apiKeys))
 
 	return &Client{
 		apiKeys: apiKeys,
@@ -268,8 +319,31 @@ func (c *Client) RotateKey() string {
 	}
 	newVal := atomic.AddUint32(&c.currentIdx, 1)
 	newIdx := newVal % uint32(len(c.apiKeys))
-	slog.Info("rotated Gemini API key", "new_index", newIdx, "total_keys", len(c.apiKeys))
+	slog.Info("rotated API key", "active_key_index", newIdx, "key_mask", maskKey(c.apiKeys[newIdx]), "total_keys", len(c.apiKeys))
 	return c.apiKeys[newIdx]
+}
+
+func (c *Client) GetKeyStatuses() []KeyStatus {
+	current := atomic.LoadUint32(&c.currentIdx) % uint32(len(c.apiKeys))
+	statuses := make([]KeyStatus, len(c.apiKeys))
+	for i, k := range c.apiKeys {
+		statuses[i] = KeyStatus{
+			Index:    i,
+			KeyMask:  maskKey(k),
+			Provider: getProvider(k),
+			IsActive: i == int(current),
+		}
+	}
+	return statuses
+}
+
+func (c *Client) SelectKey(index int) error {
+	if index < 0 || index >= len(c.apiKeys) {
+		return fmt.Errorf("invalid key index: %d (valid range: 0-%d)", index, len(c.apiKeys)-1)
+	}
+	atomic.StoreUint32(&c.currentIdx, uint32(index))
+	slog.Info("manually selected active API key", "index", index, "key_mask", maskKey(c.apiKeys[index]))
+	return nil
 }
 
 func (c *Client) GenerativeModel(name string) *GenerativeModel {
@@ -281,4 +355,18 @@ func (c *Client) GenerativeModel(name string) *GenerativeModel {
 
 func (c *Client) Close() error {
 	return nil
+}
+
+func getProvider(key string) string {
+	if strings.HasPrefix(key, "sk-api-") {
+		return "minimax"
+	}
+	return "gemini"
+}
+
+func maskKey(key string) string {
+	if len(key) <= 10 {
+		return "..."
+	}
+	return key[:6] + "..." + key[len(key)-4:]
 }

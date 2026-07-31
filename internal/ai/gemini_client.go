@@ -320,6 +320,20 @@ func (c *GeminiClient) Close() {
 	}
 }
 
+func (c *GeminiClient) GetKeyStatuses() []genai.KeyStatus {
+	if c.client == nil {
+		return nil
+	}
+	return c.client.GetKeyStatuses()
+}
+
+func (c *GeminiClient) SelectKey(index int) error {
+	if c.client == nil {
+		return fmt.Errorf("gemini client not initialized")
+	}
+	return c.client.SelectKey(index)
+}
+
 func (c *GeminiClient) extractText(resp *genai.GenerateContentResponse) string {
 	if resp == nil {
 		return ""
