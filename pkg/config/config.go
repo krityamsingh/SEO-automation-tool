@@ -3,7 +3,7 @@ package config
 import (
 	"encoding/base64"
 	"fmt"
-	"golang.org/x/exp/slog"
+	"log/slog"
 	"os"
 	"strconv"
 	"strings"
@@ -115,14 +115,6 @@ func Load() *Config {
 	return cfg
 }
 
-func require(key string) string {
-	v := os.Getenv(key)
-	if v == "" {
-		slog.Warn("config: required env var missing", "key", key)
-	}
-	return v
-}
-
 func parseAPIKeyPools() (gemini []string, kimi []string, minimax []string) {
 	// Raw string sources
 	sources := []string{
@@ -170,19 +162,13 @@ func parseAPIKeyPools() (gemini []string, kimi []string, minimax []string) {
 		for _, p := range parts {
 			addKey(p)
 		}
-	}
-
-	// Fallback to embedded default key pool if environment is missing key sources
-	if len(gemini) == 0 && len(kimi) == 0 && len(minimax) == 0 {
-		const fallbackPool = "c2stRUNsUG5kOXd0SHh1VVRVR0k1ck0wRnJiMW1HeEpwRk9KekVYcGlXTnRRQW12eWRWLEFJemFTeUJfRnFqRktWWnVnM1BtYkJWb2JOOGxrNFcyc1hJZ01JQSxBUS5BYjhSTjZKNjMwZDNhSzVKVllNZERteHRQUmhEUDY4WlBDVmJRM2NuRS1uR0ZsOVYxQSxBSXphU3lEZXpxQmxDSXY0X1MzOG9XTEZrZDF1M0RBOEQ3NHFBbDAsQUl6YVN5RFFkU3lpR0VuNDR6LUdOWWVWTlRNYlMxZHRkY2RvTjhRLEFJemFTeUEtdmU5OFhnSUJkOWhya25USFZUM3FxX09MX242cmlBTSxBSXphU3lDOUh5bV9nVlNTSlAtTXpfeFRlbURKOGEtV0ZweGJWalEsQUl6YVN5QWRCdEF5enRKN2Uxc1RGb285S19KbE55NTFQVXBHZTJrLEFJemFTeUJNUmI4X1huYlFDZG8wblFDRllsdHZnNTR4WlpTc29NYyxzay1hcGktVDBfWUhPcDFVSkR4RzQ4bzZDQXJCNllVQzc2amtxZ1EtbEMydkJhM0NqSkR0TkRSTjJGTV9mX0NMUGtUSDVJZ0tUU0FKOGtLaGI2SGJ1SGJjbVdDdWFvajEzSlprUHB4eVp6eWkzaUloN0d0X2VxLUNSVW1rLHNrLWFwaS1ydUtMYmhpUnZXcHU4TXFjRnNJRDQ3TVNfNHI4V2k2Q3lLVDR1ZnJNT2N3NHpraXg5dUlubWNVU3lkZk9TSzlIVGZzUDZQSlkwVnJHallWQ2hqWFV4MmZQbWlwbTR5RVUxQXpMWl81UGVzd1pUZU5sZlhHOUkwLHNrLWFwaS1hNExfdkg2eVF6ME13b2VKeXl1cEhHbW1YZ1U5dFVkenRzMFhuUDF5R1l4MTJCRkJtSy1TVkY5M3BVZDZ5cXFtMUx3Q0dhTVhVb0J0QlVJRjJscEw1S2tXMFZkUmhFcjVWcmdYbzRidjJlNm45QzFsanZkSGEsc2stYXBpLVdjenZieUNqYXVXRzhsRlpZbFZ2U2lVeWxqMUR2Y0NCeFdJRWoxcTdlQzdUd1BRNlBVdXNkYkFTbWJXa2JRSWx0V0g1Q2RrNWFQNmo2cjFveW1ES202Znl0dHpPYlREYWM0UFhfMmZFNzViSUozNjBaMjk5ayxzay1hcGktWURuMm9nZlhBQzYzMXMyMTNocVJOMkxBTTQ1aWtkdk1URjk0ak9FMlRzV1ZuUVIxb1dxMERfZHRMTFRoYXlfa3lPOXhndDhabjVYWUpuQUkzN3BDLVlqM0pQTmRlanNOeTZvTUl1cHpjZ0hSWFVPR0h0NHM="
-		if decoded, err := base64.StdEncoding.DecodeString(fallbackPool); err == nil {
-			for _, p := range strings.Split(string(decoded), ",") {
-				addKey(p)
-			}
 		}
-	}
 
-	slog.Info("config: loaded multi-provider API key pools",
+		if len(gemini) == 0 && len(kimi) == 0 && len(minimax) == 0 {
+			slog.Warn("config: no API keys found in environment; AI features will be unavailable")
+		}
+
+		slog.Info("config: loaded multi-provider API key pools",
 		"gemini_keys", len(gemini),
 		"kimi_keys", len(kimi),
 		"minimax_keys", len(minimax),

@@ -7,7 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"golang.org/x/exp/slog"
+	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
@@ -362,30 +362,44 @@ func (c *GeminiClient) executeMiniMaxWithPool(ctx context.Context, prompt string
 
 func (c *GeminiClient) callMiniMaxSingleKey(ctx context.Context, key, prompt string, temperature float32, maxTokens int32) (string, error) {
 	endpoints := []string{
+		"https://api.minimax.chat/v1/text/chatcompletion_v2",
 		"https://api.minimaxi.chat/v1/text/chatcompletion_v2",
 		"https://api.minimaxi.chat/v1/chat/completions",
-		"https://api.minimax.chat/v1/chat/completions",
+		"https://api.minimaxi.chat/v1/chat/completions",
 	}
 
-	modelsToTry := []string{"abab6.5g-chat", "abab6.5t-chat", "minimax-text-01"}
+	modelsToTry := []string{"abab6.5-chat", "abab6.5t-chat", "minimax-text-01"}
 
+	// Build the correct schema per endpoint family. MiniMax has two schemas:
+	// Legacy v2 (sender_type / sender_name / text) and OpenAI-compatible
+	// (model / messages[{role:"user", content:"..."}]).
 	for _, endpoint := range endpoints {
+		isLegacyV2 := strings.Contains(endpoint, "chatcompletion_v2")
+
+		bodyMap := make(map[string]interface{})
+		if temperature > 0 {
+			bodyMap["temperature"] = temperature
+		}
+		if maxTokens > 0 {
+			bodyMap["max_tokens"] = maxTokens
+		}
+
 		for _, mName := range modelsToTry {
-			reqBody := map[string]interface{}{
-				"model": mName,
-				"messages": []map[string]interface{}{
-					{"sender_type": "USER", "sender_name": "user", "text": prompt, "role": "user", "content": prompt},
-				},
-				"temperature": temperature,
-			}
-			if maxTokens > 0 {
-				reqBody["max_tokens"] = maxTokens
+			bodyMap["model"] = mName
+			if isLegacyV2 {
+				bodyMap["messages"] = []map[string]interface{}{
+					{"sender_type": "USER", "sender_name": "User", "text": prompt},
+				}
+			} else {
+				bodyMap["messages"] = []map[string]interface{}{
+					{"role": "user", "content": prompt},
+				}
 			}
 
-			bodyBytes, _ := json.Marshal(reqBody)
+			bodyBytes, _ := json.Marshal(bodyMap)
 			req, err := http.NewRequestWithContext(ctx, "POST", endpoint, bytes.NewBuffer(bodyBytes))
 			if err != nil {
-				return "", err
+				continue
 			}
 
 			req.Header.Set("Content-Type", "application/json")
@@ -408,13 +422,20 @@ func (c *GeminiClient) callMiniMaxSingleKey(ctx context.Context, key, prompt str
 					Message struct {
 						Content string `json:"content"`
 					} `json:"message"`
+					Text string `json:"text"`
 				} `json:"choices"`
 				Reply string `json:"reply"`
 			}
 
 			if err := json.Unmarshal(respBytes, &apiResp); err == nil {
-				if len(apiResp.Choices) > 0 && strings.TrimSpace(apiResp.Choices[0].Message.Content) != "" {
-					return apiResp.Choices[0].Message.Content, nil
+				if len(apiResp.Choices) > 0 {
+					ch := apiResp.Choices[0]
+					if content := strings.TrimSpace(ch.Message.Content); content != "" {
+						return content, nil
+					}
+					if content := strings.TrimSpace(ch.Text); content != "" {
+						return content, nil
+					}
 				}
 				if strings.TrimSpace(apiResp.Reply) != "" {
 					return apiResp.Reply, nil

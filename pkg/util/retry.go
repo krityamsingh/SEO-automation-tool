@@ -3,7 +3,7 @@ package util
 import (
 	"context"
 	"fmt"
-	"golang.org/x/exp/slog"
+	"log/slog"
 	"math"
 	"math/rand"
 	"net/http"

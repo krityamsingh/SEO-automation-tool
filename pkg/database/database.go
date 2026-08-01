@@ -1,8 +1,14 @@
 package database
 
 import (
+	"crypto/hmac"
+	"crypto/rand"
+	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/hex"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -75,15 +81,17 @@ func AutoMigrate(db *gorm.DB) error {
 }
 
 func SeedDefaultData(db *gorm.DB) {
-	// Seed default users if empty
+	// Seed default users if empty. Passwords are stored as salted hashes
+	// (NOT plaintext) so that login works regardless of seeding order and the
+	// later auth.SeedDefaultUsers pass only needs to fill gaps/upgrade.
 	var userCount int64
 	db.Model(&User{}).Count(&userCount)
 	if userCount == 0 {
-		devUser := User{Username: "dev_admin", Email: "dev@kenerateai.com", Role: "dev", PasswordHash: "admin123", VerificationRate: 100}
+		devUser := User{Username: "dev_admin", Email: "dev@kenerateai.com", Role: "dev", PasswordHash: HashPasswordLocal("admin123"), VerificationRate: 100}
 		db.Create(&devUser)
 		interns := []string{"anu", "master", "hirtik", "anuj"}
 		for _, name := range interns {
-			u := User{Username: name, Email: name + "@kenerateai.com", Role: "intern", PasswordHash: "intern123", VerificationRate: 100}
+			u := User{Username: name, Email: name + "@kenerateai.com", Role: "intern", PasswordHash: HashPasswordLocal("intern123"), VerificationRate: 100}
 			db.Create(&u)
 		}
 	}
@@ -108,7 +116,7 @@ func SeedDefaultData(db *gorm.DB) {
 			AssignedInternID:   assignedID,
 			AssignedInternName: "anuj",
 			Status:             "assigned",
-			CreatedAt:          time.Now(),
+			CreatedAt:           time.Now(),
 		}
 		db.Create(&sampleTask)
 	}
@@ -315,4 +323,76 @@ func GetDailyUsage(db *gorm.DB) (int, int) {
 	var cap DailyCap
 	db.FirstOrCreate(&cap, DailyCap{Date: today})
 	return cap.ContentCreated, cap.GeminiCalls
+}
+
+// ---------------------------------------------------------------------------
+// Local password hashing helpers.
+//
+// These mirror pkg/auth.HashPassword / VerifyPassword so the database package
+// can seed default accounts with properly hashed passwords WITHOUT importing
+// pkg/auth (which would create an import cycle, since auth imports database).
+//
+// Scheme: "salt$iterations$hex(iterated-hmac)". A random 16-byte per-user salt
+// is generated for every hash, so identical passwords no longer collide.
+// ---------------------------------------------------------------------------
+
+const localHashIterations = 12000
+
+// HashPasswordLocal produces a salted, iterated HMAC-SHA256 hash.
+func HashPasswordLocal(password string) string {
+	salt := make([]byte, 16)
+	if _, err := rand.Read(salt); err != nil {
+		fallback := sha256.Sum256([]byte(time.Now().String()))
+		salt = fallback[:]
+	}
+	return fmt.Sprintf("%s$%d$%s", hex.EncodeToString(salt), localHashIterations, localHashWithSalt(password, salt, localHashIterations))
+}
+
+func localHashWithSalt(password string, salt []byte, iterations int) string {
+	mac := hmac.New(sha256.New, []byte(password))
+	mac.Write(salt)
+	mac.Write([]byte(strconv.Itoa(iterations)))
+	sum := mac.Sum(nil)
+	for i := 1; i < iterations; i++ {
+		mac.Reset()
+		mac.Write(sum)
+		sum = mac.Sum(nil)
+	}
+	return hex.EncodeToString(sum)
+}
+
+// IsLegacyHashLocal reports whether a stored hash predates the salted scheme.
+func IsLegacyHashLocal(stored string) bool {
+	return !strings.Contains(stored, "$")
+}
+
+// VerifyPasswordLocal checks a password against a stored hash, supporting both
+// the current salted scheme and the weak legacy static-salt scheme (for
+// transparent upgrade by the auth layer).
+func VerifyPasswordLocal(password, stored string) bool {
+	if parts := strings.SplitN(stored, "$", 3); len(parts) == 3 {
+		salt, err := hex.DecodeString(parts[0])
+		if err != nil {
+			return false
+		}
+		iterations, err := strconv.Atoi(parts[1])
+		if err != nil || iterations <= 0 {
+			return false
+		}
+		expected, err := hex.DecodeString(parts[2])
+		if err != nil {
+			return false
+		}
+		computed, err := hex.DecodeString(localHashWithSalt(password, salt, iterations))
+		if err != nil {
+			return false
+		}
+		return subtle.ConstantTimeCompare(expected, computed) == 1
+	}
+	// Legacy single-round SHA-256 with static pepper.
+	const legacyStaticSalt = "kenerateai_salt_"
+	h := sha256.New()
+	h.Write([]byte(legacyStaticSalt + password))
+	legacyHex := hex.EncodeToString(h.Sum(nil))
+	return subtle.ConstantTimeCompare([]byte(legacyHex), []byte(stored)) == 1
 }

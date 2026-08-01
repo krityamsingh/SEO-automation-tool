@@ -1,8 +1,8 @@
-package handler
+package api
 
 import (
 	"fmt"
-	"golang.org/x/exp/slog"
+	"log/slog"
 	"net/http"
 	"os"
 	"strings"
@@ -28,6 +28,7 @@ var (
 	apiServer *api.Server
 	initOnce  sync.Once
 	initError error
+	funcTag   = "aeo_geo_seo_agent.vercel.handler"
 )
 
 func initializeServer() {
@@ -38,11 +39,12 @@ func initializeServer() {
 		}
 	}()
 
-	os.Setenv("VERCEL", "1")
-
 	cfg := config.Load()
 
-	// Ensure SQLite path is in /tmp for Vercel serverless environment
+	// Ensure SQLite path is in /tmp for Vercel serverless environment (read-only FS).
+	// We tag VERCEL so database.Connect can select a writable path if invoked directly,
+	// but we also pre-rewrite our own URL so we guarantee /tmp regardless.
+	os.Setenv("VERCEL", "1")
 	dbURL := cfg.DatabaseURL
 	if dbURL == "" || dbURL == "sqlite://agent.db" || strings.HasSuffix(dbURL, "agent.db") {
 		dbURL = "sqlite:///tmp/agent.db"
@@ -79,7 +81,7 @@ func initializeServer() {
 	sched := scheduler.New(cfg, gemini, crawl, seoEngine, writer, aeoEngine, geoEngine, publishers, db, agentSys, taskEng)
 
 	apiServer = api.New(db, sched, gemini, cfg, crawl, ragEngine, agentSys, taskEng)
-	slog.Info("Vercel serverless function initialized successfully")
+	slog.Info("Vercel serverless function initialized successfully", "tag", funcTag)
 }
 
 // Handler is the Vercel serverless function entrypoint

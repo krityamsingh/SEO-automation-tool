@@ -3,7 +3,7 @@ package rag
 import (
 	"context"
 	"fmt"
-	"golang.org/x/exp/slog"
+	"log/slog"
 	"math"
 	"strings"
 	"sync"
@@ -26,9 +26,10 @@ type DocumentChunk struct {
 }
 
 type RAGEngine struct {
-	crawler *crawler.Crawler
-	chunks  []DocumentChunk
-	mu      sync.RWMutex
+	crawler   *crawler.Crawler
+	chunks    []DocumentChunk
+	nextID    uint64
+	mu        sync.RWMutex
 }
 
 func New(cr *crawler.Crawler) *RAGEngine {
@@ -44,7 +45,7 @@ func (r *RAGEngine) IngestWithMetadata(source, title, content, category, keyword
 	defer r.mu.Unlock()
 
 	chunk := DocumentChunk{
-		ID:         fmt.Sprintf("%s-%d", category, len(r.chunks)+1),
+		ID:         fmt.Sprintf("%s-%d", category, r.nextID),
 		SourceURL:  source,
 		Title:      title,
 		Content:    content,
@@ -55,6 +56,7 @@ func (r *RAGEngine) IngestWithMetadata(source, title, content, category, keyword
 		Words:      tokenize(content + " " + title + " " + keyword + " " + targetSite),
 		CreatedAt:  time.Now(),
 	}
+	r.nextID++
 	r.chunks = append(r.chunks, chunk)
 	slog.Info("RAG: ingested item with metadata", "category", category, "keyword", keyword, "target", targetSite)
 }

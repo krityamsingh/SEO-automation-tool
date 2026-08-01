@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"golang.org/x/exp/slog"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -341,15 +341,6 @@ func isLinkFarmOrSpam(target string) bool {
 		}
 	}
 	return false
-}
-
-func extractJSON(s string) string {
-	start := strings.Index(s, "{")
-	end := strings.LastIndex(s, "}")
-	if start != -1 && end != -1 && end > start {
-		return s[start : end+1]
-	}
-	return s
 }
 
 func ternary(cond bool, a, b string) string {

@@ -3,7 +3,7 @@ package seo
 import (
 	"context"
 	"fmt"
-	"golang.org/x/exp/slog"
+	"log/slog"
 	"strings"
 	"time"
 

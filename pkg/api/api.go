@@ -2,7 +2,7 @@ package api
 
 import (
 	"context"
-	"golang.org/x/exp/slog"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"time"
@@ -71,6 +71,7 @@ func (s *Server) routes() {
 
 	// Auth Endpoints
 	s.router.POST("/api/auth/login", s.login)
+	s.router.POST("/api/auth/logout", auth.AuthMiddleware(), s.logout)
 	s.router.GET("/api/auth/me", auth.AuthMiddleware(), s.me)
 
 	// Tasks API
@@ -107,8 +108,8 @@ func (s *Server) routes() {
 	s.router.GET("/logs", s.listLogs)
 
 	s.router.POST("/trigger", s.triggerCycle)
-	s.router.POST("/content/:id/approve", s.approveContent)
-	s.router.POST("/content/:id/reject", s.rejectContent)
+	s.router.POST("/content/:id/approve", auth.AuthMiddleware(), auth.RequireDevRole(), s.approveContent)
+	s.router.POST("/content/:id/reject", auth.AuthMiddleware(), auth.RequireDevRole(), s.rejectContent)
 }
 
 func (s *Server) dashboard(c *gin.Context) {
@@ -132,12 +133,25 @@ func (s *Server) login(c *gin.Context) {
 		return
 	}
 
-	c.SetCookie("session_token", token, 86400, "/", "", false, false)
+	// Detect TLS/HTTPS to set the Secure cookie flag correctly in both server
+	// mode (terminates TLS via proxy/Cloud) and directly.
+	secureCookie := c.Request.TLS != nil || c.GetHeader("X-Forwarded-Proto") == "https"
+	c.SetCookie("session_token", token, 86400, "/", "", secureCookie, true)
 
 	c.JSON(http.StatusOK, gin.H{
 		"token": token,
 		"user":  user,
 	})
+}
+
+// logout revokes the caller's session token.
+func (s *Server) logout(c *gin.Context) {
+	token := auth.ExtractToken(c)
+	if token != "" {
+		auth.RevokeToken(token)
+		c.SetCookie("session_token", "", -1, "/", "", false, true)
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "logged out successfully"})
 }
 
 func (s *Server) me(c *gin.Context) {
@@ -197,6 +211,21 @@ func (s *Server) submitTaskProof(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil || req.ProofURL == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Valid proof_url required"})
 		return
+	}
+
+	// IDOR fix: interns may only submit proof for tasks assigned to them
+	role, _ := c.Get("userRole")
+	userIDRaw, _ := c.Get("userID")
+	userID, _ := userIDRaw.(uint)
+
+	if role != "dev" {
+		var taskRecord database.Task
+		if err := s.db.First(&taskRecord, id).Error; err == nil {
+			if taskRecord.AssignedInternID == nil || *taskRecord.AssignedInternID != userID {
+				c.JSON(http.StatusForbidden, gin.H{"error": "You can only submit proof for your own tasks"})
+				return
+			}
+		}
 	}
 
 	taskRecord, isVerified, notes, err := s.taskEngine.VerifySubmission(c.Request.Context(), uint(id), req.ProofURL)
@@ -393,6 +422,25 @@ func (s *Server) getNotifications(c *gin.Context) {
 func (s *Server) markNotificationRead(c *gin.Context) {
 	idStr := c.Param("id")
 	id, _ := strconv.Atoi(idStr)
+
+	// IDOR fix: users may only mark their own notifications read
+	userIDRaw, _ := c.Get("userID")
+	userID, _ := userIDRaw.(uint)
+	role, _ := c.Get("userRole")
+	roleStr, _ := role.(string)
+
+	var notif database.Notification
+	if err := s.db.First(&notif, uint(id)).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Notification not found"})
+		return
+	}
+
+	// devs can approve/reject anything; other users can only mark their own
+	if roleStr != "dev" && notif.UserID != userID && !(notif.UserRole == roleStr && notif.UserID == 0) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Cannot mark another user's notification"})
+		return
+	}
+
 	s.notifManager.MarkAsRead(uint(id))
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }

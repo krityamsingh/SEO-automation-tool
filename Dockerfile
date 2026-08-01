@@ -1,12 +1,15 @@
 # Build stage
-FROM golang:1.22-alpine AS builder
+FROM golang:1.23-alpine AS builder
+
+# sqlite3 requires CGO for the mattn/go-sqlite3 driver
+RUN apk add --no-cache gcc musl-dev
 
 WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -mod=vendor -ldflags="-w -s" -o agent cmd/agent/main.go
+RUN CGO_ENABLED=1 GOOS=linux go build -ldflags="-w -s" -o agent cmd/agent/main.go
 
 # Runtime stage
 FROM alpine:3.19

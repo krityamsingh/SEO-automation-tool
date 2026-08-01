@@ -543,20 +543,21 @@
     </div>
 
     <div style="display: flex; align-items: center; gap: 16px;">
-      <button class="btn btn-primary" onclick="triggerAutonomousCycle()">⚡ Trigger Agent Debate</button>
+      <button id="triggerBtn" class="btn btn-primary" onclick="triggerAutonomousCycle()">⚡ Trigger Agent Debate</button>
       <!-- Notification Bell -->
       <div style="position:relative;">
         <button onclick="toggleNotifPanel()" style="background:rgba(255,255,255,0.08);border:1px solid var(--border-color);color:var(--text-main);padding:8px 12px;border-radius:8px;cursor:pointer;font-size:16px;">🔔</button>
         <span id="notifBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:var(--rose);color:#fff;font-size:10px;font-weight:700;padding:2px 5px;border-radius:10px;min-width:18px;justify-content:center;align-items:center;"></span>
         <div id="notifDropdown" style="display:none;position:absolute;top:42px;right:0;width:300px;background:rgba(9,13,22,0.97);border:1px solid var(--border-color);border-radius:12px;padding:12px;z-index:200;backdrop-filter:blur(16px);" class="notif-dropdown">
           <div style="font-size:12px;font-weight:700;color:var(--text-muted);margin-bottom:8px;">NOTIFICATIONS</div>
-          <div id="notifPanel"><div style="color:var(--text-muted);font-size:13px;text-align:center;padding:16px;">Loading...</div></div>
+          <div id="notifPanel"><div style="color:var(--text-muted);font-size:13px;text-align:center;padding:16px;">Login to view notifications</div></div>
         </div>
       </div>
       <div class="user-pill" id="userPill">
         <span id="usernameDisplay">Guest</span>
-        <span class="user-role-badge role-dev" id="roleBadge">DEV</span>
-        <button class="btn btn-secondary btn-sm" onclick="openLoginModal()">Login</button>
+        <span class="user-role-badge role-dev" id="roleBadge">GUEST</span>
+        <button id="loginBtn" class="btn btn-secondary btn-sm" onclick="openLoginModal()">Login</button>
+        <button id="logoutBtn" class="btn btn-secondary btn-sm" style="display:none;" onclick="performLogout()">Logout</button>
       </div>
     </div>
   </header>
@@ -647,7 +648,7 @@
       <div class="table-card">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
           <h2 style="font-family: var(--font-heading);">Intern Performance Leaderboard (Transparent Shared Dashboard)</h2>
-          <button class="btn btn-primary" onclick="openCreateInternModal()">+ Add New Intern</button>
+          <button id="addInternBtn" class="btn btn-primary" onclick="openCreateInternModal()">+ Add New Intern</button>
         </div>
         <table>
           <thead>
@@ -762,26 +763,90 @@
 
   <script>
     let currentAuthToken = localStorage.getItem('token') || '';
-    let currentUser = JSON.parse(localStorage.getItem('user') || '{"username":"Guest","role":"dev"}');
+    let currentUser = safeParse(localStorage.getItem('user'), {"username":"Guest","role":""});
     let agentChatInterval = null;
     let notifInterval = null;
     let taskInterval = null;
     let rankChartInstance = null;
 
+    function safeParse(str, fallback) {
+      try { return JSON.parse(str) || fallback; } catch(e) { return fallback; }
+    }
+
+    // ─── HTML ESCAPE (XSS guard for dynamic content) ─────────────────────────
+    function esc(str) {
+      const d = document.createElement('div');
+      d.innerText = String(str == null ? '' : str);
+      return d.innerHTML;
+    }
+
+    // ─── AUTH STATE ───────────────────────────────────────────────────────────
+    function clearAuth() {
+      currentAuthToken = '';
+      currentUser = {"username":"Guest","role":""};
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+    }
+
+    async function performLogout() {
+      try {
+        if (currentAuthToken) {
+          await fetch('/api/auth/logout', { method: 'POST', headers: { 'Authorization': 'Bearer ' + currentAuthToken } });
+        }
+      } catch(_) {}
+      clearAuth();
+      updateAuthUI();
+      showToast('👋 Logged out', 'info');
+    }
+
     // ─── AUTH UI ─────────────────────────────────────────────────────────────
     function updateAuthUI() {
       document.getElementById('usernameDisplay').innerText = currentUser.username || 'Guest';
       const badge = document.getElementById('roleBadge');
-      badge.innerText = (currentUser.role || 'dev').toUpperCase();
-      badge.className = 'user-role-badge ' + (currentUser.role === 'dev' ? 'role-dev' : 'role-intern');
-      if (currentAuthToken) startPolling();
+      const role = currentUser.role || 'guest';
+      badge.innerText = role.toUpperCase();
+      badge.className = 'user-role-badge ' + (role === 'dev' ? 'role-dev' : (role === 'intern' ? 'role-intern' : 'role-dev'));
+
+      const loginBtn = document.getElementById('loginBtn');
+      const logoutBtn = document.getElementById('logoutBtn');
+      const addIntern = document.getElementById('addInternBtn');
+      const trigger = document.getElementById('triggerBtn');
+      if (loginBtn)  loginBtn.style.display  = currentAuthToken ? 'none' : 'inline-flex';
+      if (logoutBtn) logoutBtn.style.display = currentAuthToken ? 'inline-flex' : 'none';
+      if (addIntern) addIntern.style.display = (currentAuthToken && role === 'dev') ? 'inline-flex' : 'none';
+      if (trigger)   trigger.disabled = false;
+
+      if (currentAuthToken) startPolling(); else stopPolling();
+    }
+
+    // Validate stored token on load; drop it if invalid/expired
+    async function validateStoredToken() {
+      if (!currentAuthToken) return false;
+      try {
+        const res = await fetch('/api/auth/me', { headers: { 'Authorization': 'Bearer ' + currentAuthToken } });
+        if (res.ok) {
+          const user = await res.json();
+          currentUser = user;
+          localStorage.setItem('user', JSON.stringify(user));
+          return true;
+        }
+        if (res.status === 401) clearAuth();
+        return false;
+      } catch(e) { return false; }
+    }
+
+    function stopPolling() {
+      [agentChatInterval, notifInterval, taskInterval].forEach(i => { if (i) clearInterval(i); });
+      agentChatInterval = notifInterval = taskInterval = null;
     }
 
     // ─── TAB SWITCHING ───────────────────────────────────────────────────────
     function switchTab(tabId) {
       document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
       document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
-      event.target.classList.add('active');
+      // Use the button relating to the tab instead of the global `event` object
+      const btn = document.querySelector(`.tab-btn[onclick*="'${tabId}'"]`);
+      if (btn) btn.classList.add('active');
       document.getElementById('tab-' + tabId).classList.add('active');
       if (tabId === 'kanban')   fetchTasks();
       if (tabId === 'debates')  fetchDebates();
@@ -821,30 +886,30 @@
         let cA = 0, cS = 0, cV = 0, cR = 0;
 
         (tasks || []).forEach(t => {
-          const angleClass = (t.angle || 'seo').toLowerCase();
+          const angleClass = esc((t.angle || 'seo')).toLowerCase();
           const rankBadge = t.rank_current > 0
-            ? `<span style="font-size:11px;color:var(--emerald);">📍 Rank #${t.rank_current}</span>`
+            ? `<span style="font-size:11px;color:var(--emerald);">📍 Rank #${esc(t.rank_current)}</span>`
             : '';
           const proofLine = t.submitted_proof_url
-            ? `<div style="font-size:11px;color:var(--cyan);margin-bottom:4px;word-break:break-all;">🔗 ${t.submitted_proof_url}</div>` : '';
+            ? `<div style="font-size:11px;color:var(--cyan);margin-bottom:4px;word-break:break-all;">🔗 ${esc(t.submitted_proof_url)}</div>` : '';
           const notesLine = t.verification_notes
-            ? `<div style="font-size:11px;color:var(--rose);margin-bottom:4px;">📝 ${t.verification_notes}</div>` : '';
+            ? `<div style="font-size:11px;color:var(--rose);margin-bottom:4px;">📝 ${esc(t.verification_notes)}</div>` : '';
           const submitBtn = (t.status === 'assigned' || t.status === 'in_progress')
-            ? `<button class="btn btn-primary btn-sm" onclick="openSubmitModal(${t.id}, '${(t.keyword||'').replace(/'/g,"\\'")}')">Submit Proof</button>` : '';
+            ? `<button class="btn btn-primary btn-sm" onclick="openSubmitModal(${JSON.stringify(t.id)}, ${JSON.stringify(t.keyword||'')})">Submit Proof</button>` : '';
 
           const card = `
             <div class="task-card">
               <div class="task-meta">
-                <span class="angle-tag angle-${angleClass}">${t.angle || 'SEO'}</span>
-                <span style="font-size:11px;color:var(--text-muted);">Task #${t.id}</span>
+                <span class="angle-tag angle-${angleClass}">${esc(t.angle || 'SEO')}</span>
+                <span style="font-size:11px;color:var(--text-muted);">Task #${esc(t.id)}</span>
                 ${rankBadge}
               </div>
-              <div class="task-title">${t.title || t.keyword || 'Untitled Task'}</div>
-              <div class="task-details">Keyword: <b>${t.keyword}</b></div>
-              <div class="task-details">Target: <b>${t.backlink_target}</b></div>
+              <div class="task-title">${esc(t.title || t.keyword || 'Untitled Task')}</div>
+              <div class="task-details">Keyword: <b>${esc(t.keyword)}</b></div>
+              <div class="task-details">Target: <b>${esc(t.backlink_target)}</b></div>
               ${proofLine}${notesLine}
               <div class="task-assignee">
-                <span>👤 ${t.assigned_intern_name || 'Unassigned'}</span>
+                <span>👤 ${esc(t.assigned_intern_name || 'Unassigned')}</span>
                 ${submitBtn}
               </div>
             </div>`;
@@ -953,23 +1018,7 @@
 
     async function removeIntern(id, username) {
       if (!confirm('Remove intern ' + username + '? This cannot be undone.')) return;
-      if (!currentAuthToken) {
-        try {
-          const loginRes = await fetch('/api/auth/login', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username: 'dev_admin', password: 'admin123' })
-          });
-          if (loginRes.ok) {
-            const loginData = await loginRes.json();
-            currentAuthToken = loginData.token;
-            currentUser = loginData.user;
-            localStorage.setItem('token', currentAuthToken);
-            localStorage.setItem('user', JSON.stringify(currentUser));
-            updateAuthUI();
-          }
-        } catch(_) {}
-      }
+      if (!currentAuthToken) { showToast('❌ Please log in as Dev first', 'error'); openLoginModal(); return; }
       try {
         const res = await fetch('/api/interns/' + id, {
           method: 'DELETE',
@@ -979,7 +1028,8 @@
           showToast('✅ Intern ' + username + ' removed successfully', 'success');
           fetchInterns();
         } else {
-          showToast('❌ Failed to remove intern — Dev role required', 'error');
+          const errData = await res.json().catch(() => ({}));
+          showToast('❌ ' + (errData.error || 'Failed to remove intern — Dev role required'), 'error');
         }
       } catch(e) { showToast('❌ Error removing intern: ' + e.message, 'error'); }
     }
@@ -1169,37 +1219,14 @@
 
     // ─── TRIGGER DEBATE ──────────────────────────────────────────────────────
     async function triggerAutonomousCycle() {
-      const btn = event.target;
+      const btn = document.getElementById('triggerBtn');
+      if (!btn) return;
 
-      // Auto-login as dev_admin if not logged in
+      // Require login as dev (no auto-login - user must explicitly authenticate)
       if (!currentAuthToken) {
-        btn.disabled = true;
-        btn.innerText = '🔑 Logging in...';
-        try {
-          const loginRes = await fetch('/api/auth/login', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username: 'dev_admin', password: 'admin123' })
-          });
-          if (loginRes.ok) {
-            const loginData = await loginRes.json();
-            currentAuthToken = loginData.token;
-            currentUser = loginData.user;
-            localStorage.setItem('token', currentAuthToken);
-            localStorage.setItem('user', JSON.stringify(currentUser));
-            updateAuthUI();
-          } else {
-            btn.innerText = '⚡ Trigger Agent Debate';
-            btn.disabled = false;
-            showToast('❌ Please log in as Dev Admin first', 'error');
-            return;
-          }
-        } catch(e) {
-          btn.innerText = '⚡ Trigger Agent Debate';
-          btn.disabled = false;
-          showToast('❌ Login failed: ' + e.message, 'error');
-          return;
-        }
+        showToast('🔑 Please log in as Dev to trigger the Agent Debate', 'error');
+        openLoginModal();
+        return;
       }
 
       btn.disabled = true;
@@ -1226,6 +1253,7 @@
           btn.disabled = false;
           if (res.status === 401 || res.status === 403) {
             showToast('❌ Unauthorized — please log in as Dev Admin', 'error');
+            openLoginModal();
           } else {
             showToast('❌ Debate error: ' + errMsg, 'error');
           }
@@ -1258,7 +1286,7 @@
     // ─── SUBMIT PROOF ────────────────────────────────────────────────────────
     function openSubmitModal(id, keyword) {
       document.getElementById('modalTaskId').value = id;
-      document.getElementById('modalSubmitTitle').innerText = 'Submit Proof for Task #' + id + ' (' + keyword + ')';
+      document.getElementById('modalSubmitTitle').innerText = 'Submit Proof for Task #' + id + ' (' + esc(keyword) + ')';
       document.getElementById('modalProofUrl').value = '';
       document.getElementById('modalSubmit').classList.add('active');
     }
@@ -1279,9 +1307,13 @@
         });
         const data = await res.json();
         closeModal('modalSubmit');
-        alert('Verification Agent Result: ' + (data.is_verified ? 'VERIFIED ✅' : 'REJECTED ⚠️') + '\n\nNotes: ' + data.notes);
-        fetchTasks();
-        fetchNotifications();
+        if (res.ok) {
+          showToast((data.is_verified ? '✅ Verified!' : '⚠️ Rejected') + ' — ' + (data.notes || ''), data.is_verified ? 'success' : 'error');
+          fetchTasks();
+          fetchNotifications();
+        } else {
+          showToast('❌ ' + (data.error || 'Submit failed'), 'error');
+        }
       } catch(e) { alert('Submit error: ' + e.message); }
       finally { btn.disabled = false; btn.innerText = 'Submit to Verification Agent'; }
     }
@@ -1336,21 +1368,9 @@
       if (!u || !e) return showToast('❌ Username and Email are required', 'error');
 
       if (!currentAuthToken) {
-        try {
-          const loginRes = await fetch('/api/auth/login', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username: 'dev_admin', password: 'admin123' })
-          });
-          if (loginRes.ok) {
-            const loginData = await loginRes.json();
-            currentAuthToken = loginData.token;
-            currentUser = loginData.user;
-            localStorage.setItem('token', currentAuthToken);
-            localStorage.setItem('user', JSON.stringify(currentUser));
-            updateAuthUI();
-          }
-        } catch(_) {}
+        showToast('🔑 Please log in as Dev first', 'error');
+        openLoginModal();
+        return;
       }
 
       try {
@@ -1420,22 +1440,14 @@
 
     // ─── INIT ─────────────────────────────────────────────────────────────────
     async function autoLoginAndInit() {
-      // If no stored token, silently auto-login as dev_admin on page load
-      if (!currentAuthToken) {
-        try {
-          const res = await fetch('/api/auth/login', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username: 'dev_admin', password: 'admin123' })
-          });
-          if (res.ok) {
-            const data = await res.json();
-            currentAuthToken = data.token;
-            currentUser = data.user;
-            localStorage.setItem('token', currentAuthToken);
-            localStorage.setItem('user', JSON.stringify(currentUser));
-          }
-        } catch(_) { /* silent fail — user can manually log in */ }
+      // Validate any stored session token against the server rather than
+      // blindly trusting localStorage (handles expired/revoked tokens).
+      if (currentAuthToken) {
+        const valid = await validateStoredToken();
+        if (!valid) {
+          currentAuthToken = '';
+          currentUser = { username: 'Guest', role: 'guest' };
+        }
       }
       updateAuthUI();
       fetchTasks();
@@ -1443,6 +1455,7 @@
       fetchRagStats();
       if (currentAuthToken) {
         startPolling();
+        // Seed RAG from DB after login
         fetch('/api/rag/seed', { method: 'POST', headers: { 'Authorization': 'Bearer ' + currentAuthToken } })
           .then(() => fetchRagStats()).catch(() => {});
       }

@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"golang.org/x/exp/slog"
+	"log/slog"
 	"time"
 
 	"github.com/robfig/cron/v3"

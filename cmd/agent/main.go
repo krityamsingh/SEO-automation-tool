@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"golang.org/x/exp/slog"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"

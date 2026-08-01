@@ -2,7 +2,7 @@ package crawler
 
 import (
 	"fmt"
-	"golang.org/x/exp/slog"
+	"log/slog"
 	"net/url"
 	"strings"
 	"sync"
@@ -12,11 +12,9 @@ import (
 )
 
 type Crawler struct {
-	userAgent  string
-	delay      time.Duration
-	colly      *colly.Collector
-	results    map[string]*PageData
-	mu         sync.RWMutex
+	userAgent string
+	delay     time.Duration
+	mu        sync.Mutex // guards concurrent Crawl/GetPage calls
 }
 
 type PageData struct {
@@ -31,152 +29,173 @@ type PageData struct {
 }
 
 type ImageData struct {
-	Src  string
-	Alt  string
+	Src string
+	Alt string
 }
 
 func New(userAgent string, delay time.Duration) *Crawler {
+	return &Crawler{
+		userAgent: userAgent,
+		delay:     delay,
+	}
+}
+
+// newCollector creates a fresh, unshared Colly collector with the crawler's
+// user-agent/delay settings. Each crawl gets its own collector + results map.
+func (cr *Crawler) newCollector() *colly.Collector {
 	c := colly.NewCollector(
-		colly.UserAgent(userAgent),
-		colly.AllowedDomains(),
+		colly.UserAgent(cr.userAgent),
 		colly.MaxDepth(2),
 		colly.Async(true),
 	)
-	
+
 	c.Limit(&colly.LimitRule{
 		DomainGlob:  "*",
 		Parallelism: 2,
-		Delay:       delay,
+		Delay:       cr.delay,
 	})
-	
-	cr := &Crawler{
-		userAgent: userAgent,
-		delay:     delay,
-		colly:     c,
-		results:   make(map[string]*PageData),
+	return c
+}
+
+func (cr *Crawler) Crawl(targetURL string, maxDepth int, maxPages int) (map[string]*PageData, error) {
+	cr.mu.Lock()
+	defer cr.mu.Unlock()
+
+	parsedURL, err := url.Parse(targetURL)
+	if err != nil {
+		return nil, fmt.Errorf("invalid URL: %w", err)
 	}
-	
-	c.OnHTML("title", func(e *colly.HTMLElement) {
-		cr.mu.Lock()
-		if page, ok := cr.results[e.Request.URL.String()]; ok {
+
+	collector := cr.newCollector()
+	collector.MaxDepth = maxDepth
+	collector.AllowedDomains = []string{parsedURL.Host}
+
+	results := make(map[string]*PageData)
+	var resultsMu sync.Mutex
+
+	collector.OnHTML("title", func(e *colly.HTMLElement) {
+		resultsMu.Lock()
+		if page, ok := results[e.Request.URL.String()]; ok {
 			page.Title = e.Text
 		}
-		cr.mu.Unlock()
+		resultsMu.Unlock()
 	})
-	
-	c.OnHTML("meta[name=description]", func(e *colly.HTMLElement) {
-		cr.mu.Lock()
-		if page, ok := cr.results[e.Request.URL.String()]; ok {
+	collector.OnHTML("meta[name=description]", func(e *colly.HTMLElement) {
+		resultsMu.Lock()
+		if page, ok := results[e.Request.URL.String()]; ok {
 			page.Description = e.Attr("content")
 		}
-		cr.mu.Unlock()
+		resultsMu.Unlock()
 	})
-	
-	c.OnHTML("h1, h2, h3", func(e *colly.HTMLElement) {
-		cr.mu.Lock()
-		if page, ok := cr.results[e.Request.URL.String()]; ok {
+	collector.OnHTML("h1, h2, h3", func(e *colly.HTMLElement) {
+		resultsMu.Lock()
+		if page, ok := results[e.Request.URL.String()]; ok {
 			page.Headings = append(page.Headings, fmt.Sprintf("%s: %s", e.Name, e.Text))
 		}
-		cr.mu.Unlock()
+		resultsMu.Unlock()
 	})
-	
-	c.OnHTML("a[href]", func(e *colly.HTMLElement) {
+	collector.OnHTML("a[href]", func(e *colly.HTMLElement) {
 		link := e.Request.AbsoluteURL(e.Attr("href"))
 		if link != "" {
-			cr.mu.Lock()
-			if page, ok := cr.results[e.Request.URL.String()]; ok {
+			resultsMu.Lock()
+			if page, ok := results[e.Request.URL.String()]; ok {
 				page.Links = append(page.Links, link)
 			}
-			cr.mu.Unlock()
+			resultsMu.Unlock()
 		}
 	})
-	
-	c.OnHTML("img", func(e *colly.HTMLElement) {
-		cr.mu.Lock()
-		if page, ok := cr.results[e.Request.URL.String()]; ok {
+	collector.OnHTML("img", func(e *colly.HTMLElement) {
+		resultsMu.Lock()
+		if page, ok := results[e.Request.URL.String()]; ok {
 			page.Images = append(page.Images, ImageData{
 				Src: e.Request.AbsoluteURL(e.Attr("src")),
 				Alt: e.Attr("alt"),
 			})
 		}
-		cr.mu.Unlock()
+		resultsMu.Unlock()
 	})
-	
-	c.OnHTML("body", func(e *colly.HTMLElement) {
-		cr.mu.Lock()
-		if page, ok := cr.results[e.Request.URL.String()]; ok {
+	collector.OnHTML("body", func(e *colly.HTMLElement) {
+		resultsMu.Lock()
+		if page, ok := results[e.Request.URL.String()]; ok {
 			page.Text = e.Text
 		}
-		cr.mu.Unlock()
+		resultsMu.Unlock()
 	})
-	
-	c.OnRequest(func(r *colly.Request) {
-		cr.mu.Lock()
-		cr.results[r.URL.String()] = &PageData{URL: r.URL.String(), MetaTags: make(map[string]string)}
-		cr.mu.Unlock()
+	collector.OnRequest(func(r *colly.Request) {
+		resultsMu.Lock()
+		results[r.URL.String()] = &PageData{URL: r.URL.String(), MetaTags: make(map[string]string)}
+		resultsMu.Unlock()
 		slog.Debug("crawling", "url", r.URL.String())
 	})
-	
-	c.OnError(func(r *colly.Response, err error) {
-		slog.Warn("crawl error", "url", r.Request.URL, "error", err)
-	})
-	
-	return cr
-}
 
-func (cr *Crawler) Crawl(targetURL string, maxDepth int, maxPages int) (map[string]*PageData, error) {
-	cr.results = make(map[string]*PageData)
-	cr.colly.MaxDepth = maxDepth
-	
-	parsedURL, err := url.Parse(targetURL)
-	if err != nil {
-		return nil, fmt.Errorf("invalid URL: %w", err)
-	}
-	
-	cr.colly.AllowedDomains = []string{parsedURL.Host}
-	
-	err = cr.colly.Visit(targetURL)
+	err = collector.Visit(targetURL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to start crawl: %w", err)
 	}
-	
-	cr.colly.Wait()
-	
-	cr.mu.RLock()
-	results := make(map[string]*PageData)
-	for k, v := range cr.results {
-		results[k] = v
-		if len(results) >= maxPages {
-			break
+
+	collector.Wait()
+
+	if maxPages > 0 && len(results) > maxPages {
+		trimmed := make(map[string]*PageData, maxPages)
+		i := 0
+		for k, v := range results {
+			if i >= maxPages {
+				break
+			}
+			trimmed[k] = v
+			i++
 		}
+		results = trimmed
 	}
-	cr.mu.RUnlock()
-	
+
 	slog.Info("crawl complete", "url", targetURL, "pages", len(results))
 	return results, nil
 }
 
-func (cr *Crawler) GetPage(url string) (*PageData, error) {
-	cr.results = make(map[string]*PageData)
-	cr.colly.MaxDepth = 0
-	
-	cr.colly.AllowedDomains = []string{}
-	
-	err := cr.colly.Visit(url)
+func (cr *Crawler) GetPage(urlStr string) (*PageData, error) {
+	cr.mu.Lock()
+	defer cr.mu.Unlock()
+
+	collector := cr.newCollector()
+	collector.MaxDepth = 0
+	collector.AllowedDomains = []string{}
+
+	results := make(map[string]*PageData)
+	var resultsMu sync.Mutex
+
+	collector.OnHTML("title", func(e *colly.HTMLElement) {
+		resultsMu.Lock()
+		if page, ok := results[e.Request.URL.String()]; ok {
+			page.Title = e.Text
+		}
+		resultsMu.Unlock()
+	})
+	collector.OnHTML("body", func(e *colly.HTMLElement) {
+		resultsMu.Lock()
+		if page, ok := results[e.Request.URL.String()]; ok {
+			page.Text = e.Text
+		}
+		resultsMu.Unlock()
+	})
+	collector.OnRequest(func(r *colly.Request) {
+		resultsMu.Lock()
+		results[r.URL.String()] = &PageData{URL: r.URL.String(), MetaTags: make(map[string]string)}
+		resultsMu.Unlock()
+	})
+
+	err := collector.Visit(urlStr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch page: %w", err)
 	}
-	
-	cr.colly.Wait()
-	
-	cr.mu.RLock()
-	page, ok := cr.results[url]
-	cr.mu.RUnlock()
-	
+	collector.Wait()
+
+	resultsMu.Lock()
+	page, ok := results[urlStr]
+	resultsMu.Unlock()
+
 	if !ok {
-		return nil, fmt.Errorf("page not found: %s", url)
+		return nil, fmt.Errorf("page not found: %s", urlStr)
 	}
-	
 	return page, nil
 }
 
@@ -184,14 +203,14 @@ func (cr *Crawler) ExtractEntities(text string) []string {
 	// Simple entity extraction - in production, use NLP library
 	words := strings.Fields(text)
 	entityMap := make(map[string]bool)
-	
+
 	for i := 0; i < len(words)-1; i++ {
 		word := words[i]
 		if len(word) > 4 && strings.ToUpper(word[:1]) == word[:1] {
 			entityMap[word] = true
 		}
 	}
-	
+
 	entities := make([]string, 0, len(entityMap))
 	for e := range entityMap {
 		entities = append(entities, e)

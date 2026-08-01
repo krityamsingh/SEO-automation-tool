@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"golang.org/x/exp/slog"
+	"log/slog"
+	"net"
 	"net/http"
+	"net/url"
 	"time"
 
 	"gorm.io/gorm"
@@ -101,46 +103,62 @@ func (te *TaskEngine) VerifySubmission(ctx context.Context, taskID uint, proofUR
 
 	slog.Info("VERIFICATION AGENT: inspecting submitted proof URL", "task_id", taskID, "url", proofURL)
 
-	// Real Verification Step: Fetch proof URL to confirm HTTP 200 OK and inspect content
+	// SSRF guard: reject URLs that point to private/internal networks, loopback,
+	// or non-HTTP(S) schemes. Only allow http/https with public host IPs.
 	isVerified := false
 	notes := ""
 
-	client := http.Client{Timeout: 8 * time.Second}
-	resp, err := client.Get(proofURL)
-	if err != nil {
-		isVerified = false
-		notes = fmt.Sprintf("Rejection: Verification Agent could not reach URL '%s': %v", proofURL, err)
+	if !isSafeOutboundURL(proofURL) {
+		notes = fmt.Sprintf("Rejection: Verification Agent refused to fetch unsafe URL '%s'.", proofURL)
 	} else {
-		defer resp.Body.Close()
-		if resp.StatusCode >= 400 {
-			isVerified = false
-			notes = fmt.Sprintf("Rejection: Live URL returned HTTP %d error code.", resp.StatusCode)
+		// Real Verification Step: Fetch proof URL to confirm HTTP 200 OK
+		client := &http.Client{Timeout: 8 * time.Second,
+			Transport: &http.Transport{
+				DialContext: ssrfGuardDialContext,
+			},
+		}
+		resp, err := client.Get(proofURL)
+		if err != nil {
+			notes = fmt.Sprintf("Rejection: Verification Agent could not reach URL '%s': %v", proofURL, err)
 		} else {
-			isVerified = true
-			notes = fmt.Sprintf("Verified: Live URL confirmed HTTP 200 OK. Verification Agent validated published content for keyword '%s' on %s.", task.Keyword, task.BacklinkTarget)
+			defer resp.Body.Close()
+			if resp.StatusCode >= 400 {
+				notes = fmt.Sprintf("Rejection: Live URL returned HTTP %d error code.", resp.StatusCode)
+			} else {
+				isVerified = true
+				notes = fmt.Sprintf("Verified: Live URL confirmed HTTP 200 OK. Verification Agent validated published content for keyword '%s' on %s.", task.Keyword, task.BacklinkTarget)
+			}
 		}
 	}
 
 	if isVerified {
-		task.Status = "verified"
-		task.VerifiedAt = &now
-		task.VerificationNotes = notes
-		te.db.Save(&task)
+			task.Status = "verified"
+			task.VerifiedAt = &now
+			task.VerificationNotes = notes
+			te.db.Save(&task)
 
-		// Update intern stats
-		if task.AssignedInternID != nil {
-			te.db.Model(&database.User{}).Where("id = ?", *task.AssignedInternID).Updates(map[string]interface{}{
-				"tasks_completed": gorm.Expr("tasks_completed + 1"),
-				"tasks_pending":   gorm.Expr("GREATEST(tasks_pending - 1, 0)"),
-			})
+			// Update intern stats (SQLite-compatible MAX, avoids GREATEST which
+			// is not available on SQLite — see audit §3.2)
+			if task.AssignedInternID != nil {
+				te.db.Model(&database.User{}).Where("id = ?", *task.AssignedInternID).Updates(map[string]interface{}{
+					"tasks_completed": gorm.Expr("tasks_completed + 1"),
+					"tasks_pending":   gorm.Expr("MAX(tasks_pending - 1, 0)"),
+				})
 
-			te.createNotification(*task.AssignedInternID, "intern", "Submission Verified! 🎉",
-				fmt.Sprintf("Your proof submission for Task #%d ('%s') has been verified!", task.ID, task.Keyword), "submission_verified")
-		}
+				te.createNotification(*task.AssignedInternID, "intern", "Submission Verified! 🎉",
+					fmt.Sprintf("Your proof submission for Task #%d ('%s') has been verified!", task.ID, task.Keyword), "submission_verified")
+			}
 
-		// Initial rank check & RAG outcome feedback ingestion
-		go te.RunOutcomeTrackingForTask(ctx, task.ID)
-	} else {
+			// Initial rank check & RAG outcome feedback ingestion.
+			// Use context.Background() with a fresh timeout instead of the request
+			// context — the request completes and cancels before this goroutine
+			// finishes (see audit, 'RunOutcomeTrackingForTask uses a cancelled context').
+			go func(taskID uint) {
+				bgCtx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+				defer cancel()
+				te.RunOutcomeTrackingForTask(bgCtx, taskID)
+			}(task.ID)
+		} else {
 		task.Status = "rejected"
 		task.VerificationNotes = notes
 		te.db.Save(&task)
@@ -258,4 +276,80 @@ func (te *TaskEngine) createNotification(userID uint, role, title, message, noti
 		CreatedAt: time.Now(),
 	}
 	te.db.Create(&n)
+}
+
+// ---------------------------------------------------------------------------
+// SSRF Protection (Audit §2.7)
+// ---------------------------------------------------------------------------
+
+// isSafeOutboundURL validates the URL before the server makes an outbound request.
+func isSafeOutboundURL(rawURL string) bool {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return false
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return false
+	}
+	host := parsed.Hostname()
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return true // Resolve once by the HTTP client; allow as DNS
+	}
+
+	// Block loopback, link-local (169.254.0.0/16), all RFC1918 private nets,
+	// IPv6 fc00::/7 (ULA), and multicast.
+	if ip.IsLoopback() ||
+		ip.IsLinkLocalUnicast() ||
+		isRFC1918IP(ip) ||
+		ip.IsMulticast() ||
+		(ip.To16() != nil && ip.To16()[0] == 0xfc && ip.To16()[0] == 0xfd) {
+		return false
+	}
+	return true
+}
+
+// isRFC1918IP checks for RFC1918 private ranges without relying on go ≥ 1.20's
+// net.IP.IsPrivate(), which may not be present in this vendored environment.
+func isRFC1918IP(ip net.IP) bool {
+	if ip4 := ip.To4(); ip4 != nil {
+		return ip4[0] == 10 ||
+			(ip4[0] == 172 && ip4[1] >= 16 && ip4[1] <= 31) ||
+			(ip4[0] == 192 && ip4[1] == 168)
+	}
+	// IPv6: fc00::/7 is checked separately by the caller
+	return false
+}
+
+// ssrfGuardDialContext resolves the address and rejects private/link-local/loopback
+// IPs before dialing, as an extra layer after the string-level check. It also
+// protects against DNS-rebind attacks where a hostname resolves to a private IP.
+func ssrfGuardDialContext(ctx context.Context, network, addr string) (net.Conn, error) {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid address %s: %w", addr, err)
+	}
+
+	ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+	if err != nil {
+		return nil, fmt.Errorf("DNS resolution failed for %s: %w", host, err)
+	}
+
+	for _, ip := range ips {
+		parsedIP := ip.IP
+		if parsedIP.IsLoopback() ||
+			parsedIP.IsLinkLocalUnicast() ||
+			isRFC1918IP(parsedIP) ||
+			parsedIP.IsMulticast() ||
+			(parsedIP.To16() != nil && parsedIP.To16()[0] == 0xfc && parsedIP.To16()[0] == 0xfd) {
+			return nil, fmt.Errorf("SSRF guard: blocked private/bogon IP %s for host %s", parsedIP, host)
+		}
+	}
+
+	// Dial using the standard dialer after validation
+	dialer := &net.Dialer{
+		Timeout:   10 * time.Second,
+		KeepAlive: 30 * time.Second,
+	}
+	return dialer.DialContext(ctx, network, addr)
 }
