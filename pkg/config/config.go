@@ -130,14 +130,29 @@ func parseAPIKeyPools() (gemini []string, kimi []string, minimax []string) {
 
 	seen := make(map[string]bool)
 
-	addKey := func(k string) {
+	var addKey func(k string)
+	addKey = func(k string) {
 		k = strings.TrimSpace(k)
-		if k == "" || seen[k] {
+		if k == "" {
+			return
+		}
+
+		decodedKey := decodeSingleKeyConfig(k)
+		if strings.Contains(decodedKey, ",") && decodedKey != k {
+			parts := strings.Split(decodedKey, ",")
+			for _, p := range parts {
+				addKey(p)
+			}
+			return
+		}
+		k = decodedKey
+
+		if seen[k] {
 			return
 		}
 		seen[k] = true
 
-		if strings.HasPrefix(k, "AIzaSy") {
+		if strings.HasPrefix(k, "AIzaSy") || strings.HasPrefix(k, "AIza") {
 			gemini = append(gemini, k)
 		} else if strings.HasPrefix(k, "sk-api-") {
 			minimax = append(minimax, k)
@@ -152,9 +167,10 @@ func parseAPIKeyPools() (gemini []string, kimi []string, minimax []string) {
 			continue
 		}
 
-		// Try base64 decoding first
 		decodedStr := raw
 		if decoded, err := base64.StdEncoding.DecodeString(raw); err == nil && len(decoded) > 0 {
+			decodedStr = string(decoded)
+		} else if decoded, err := base64.URLEncoding.DecodeString(raw); err == nil && len(decoded) > 0 {
 			decodedStr = string(decoded)
 		}
 
@@ -162,7 +178,7 @@ func parseAPIKeyPools() (gemini []string, kimi []string, minimax []string) {
 		for _, p := range parts {
 			addKey(p)
 		}
-		}
+	}
 
 		if len(gemini) == 0 && len(kimi) == 0 && len(minimax) == 0 {
 			slog.Warn("config: no API keys found in environment; AI features will be unavailable")
@@ -244,4 +260,54 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("PORT is required")
 	}
 	return nil
+}
+
+func decodeSingleKeyConfig(k string) string {
+	k = strings.Trim(strings.TrimSpace(k), "\"'")
+	if k == "" {
+		return ""
+	}
+	if strings.HasPrefix(k, "AIzaSy") || strings.HasPrefix(k, "sk-api-") || strings.HasPrefix(k, "sk-") || strings.HasPrefix(k, "AQ.") || strings.HasPrefix(k, "moonshot-") || strings.HasPrefix(k, "kimi-") {
+		return k
+	}
+
+	if decoded, err := base64.StdEncoding.DecodeString(k); err == nil && len(decoded) > 0 {
+		dStr := strings.TrimSpace(string(decoded))
+		if isRecognizedKeyStringConfig(dStr) {
+			return dStr
+		}
+	}
+	if decoded, err := base64.URLEncoding.DecodeString(k); err == nil && len(decoded) > 0 {
+		dStr := strings.TrimSpace(string(decoded))
+		if isRecognizedKeyStringConfig(dStr) {
+			return dStr
+		}
+	}
+
+	if m := len(k) % 4; m != 0 {
+		padded := k + strings.Repeat("=", 4-m)
+		if decoded, err := base64.StdEncoding.DecodeString(padded); err == nil && len(decoded) > 0 {
+			dStr := strings.TrimSpace(string(decoded))
+			if isRecognizedKeyStringConfig(dStr) {
+				return dStr
+			}
+		}
+		if decoded, err := base64.URLEncoding.DecodeString(padded); err == nil && len(decoded) > 0 {
+			dStr := strings.TrimSpace(string(decoded))
+			if isRecognizedKeyStringConfig(dStr) {
+				return dStr
+			}
+		}
+	}
+	return k
+}
+
+func isRecognizedKeyStringConfig(s string) bool {
+	return strings.Contains(s, ",") ||
+		strings.HasPrefix(s, "AIzaSy") ||
+		strings.HasPrefix(s, "sk-api-") ||
+		strings.HasPrefix(s, "sk-") ||
+		strings.HasPrefix(s, "AQ.") ||
+		strings.HasPrefix(s, "moonshot-") ||
+		strings.HasPrefix(s, "kimi-")
 }

@@ -86,11 +86,13 @@ func NewGeminiClientMulti(geminiKeys, kimiKeys, minimaxKeys []string, textModel,
 	}
 
 	if len(geminiKeys) == 0 && len(kimiKeys) == 0 && len(minimaxKeys) == 0 {
-		const fallbackPool = "c2stRUNsUG5kOXd0SHh1VVRVR0k1ck0wRnJiMW1HeEpwRk9KekVYcGlXTnRRQW12eWRWLEFJemFTeUJfRnFqRktWWnVnM1BtYkJWb2JOOGxrNFcyc1hJZ01JQSxBUS5BYjhSTjZKNjMwZDNhSzVKVllNZERteHRQUmhEUDY4WlBDVmJRM2NuRS1uR0ZsOVYxQSxBSXphU3lEZXpxQmxDSXY0X1MzOG9XTEZrZDF1M0RBOEQ3NHFBbDAsQUl6YVN5RFFkU3lpR0VuNDR6LUdOWWVWTlRNYlMxZHRkY2RvTjhRLEFJemFTeUEtdmU5OFhnSUJkOWhya25USFZUMzFxX09MX242cmlBTSxBSXphU3lDOUh5bV9nVlNTSlAtTXpfeFRlbURKOGEtV0ZweGJWalEsQUl6YVN5QWRCdEF5enRKN2Uxc1RGb285S19KbE55NTFQVXBHZTJrLEFJemFTeUJNUmI4X1huYlFDZG8wblFDRllsdHZnNTR4WlpTc29NYyxzay1hcGktVDBfWUhPcDFVSkR4RzQ4bzZDQXJCNllVQzc2amtxZ1EtbEMydkJhM0NqSkR0TkRSTjJGTV_f_CLPkTH5IeGTBSAJ8kKhb6HbuHobcmWCuaoj13JZkPxyZGzyi3aIh7Gt_eq-CRUMk,sk-api-ruKLbhiRvWpu8MqcFsID47MS_4r8Wi6CyKT4ufrMOcw4zkix9uInmcUSydfOSK9HTfsP6PJY0VrGjVcHcjXUX2fPmipm4yEU1AzLVl_5PeswZTeNlfXG9I0,sk-api-a4L_vH6yQz0MwoejYyupHGmmXgU9tUdztkS0XnP1yGYX12BFBmK-SVF93pUd6yqqm1LwCGaMXUoBtBUIF2lpL5KkW0VXRhzEr5VrgXo4bv2e6n9C1ljvZHA,sk-api-WczvbyCjauWG8lFZYlWvSiUylJ1DvcCBxWIEj1q7eC7TwPQ6PUusdbASmbWkbQIln1WH5Cdk5aP6j6r1oymDKm6fyttzObTDacW4PX_2fE75bIJ360Z29nk,sk-api-YDn2ogfXAC631s213hqRN2LAMJ4pikdvMTF94jOE2TsWVnQR1oWq0DR_dtLLTHay_kyO9xgt8Zn5XYJnAI37pC-Yj3JPNdejNXOy6oIUpzcgvHRXUOGHt4s"
-		g, k, m := parseKeysFromString(fallbackPool)
-		geminiKeys = g
-		kimiKeys = k
-		minimaxKeys = m
+		cfg := config.Load()
+		geminiKeys = cfg.GeminiAPIKeys
+		kimiKeys = cfg.KimiAPIKeys
+		minimaxKeys = cfg.MiniMaxAPIKeys
+		if len(geminiKeys) == 0 && len(kimiKeys) == 0 && len(minimaxKeys) == 0 {
+			slog.Warn("ai: no API keys found in environment variables or key pools")
+		}
 	}
 
 	return &GeminiClient{
@@ -738,26 +740,105 @@ func (c *GeminiClient) extractJSON(text string) string {
 
 func parseKeysFromString(raw string) (gemini []string, kimi []string, minimax []string) {
 	raw = strings.Trim(strings.TrimSpace(raw), "\"'")
+	if raw == "" {
+		return nil, nil, nil
+	}
+
 	if decoded, err := base64.StdEncoding.DecodeString(raw); err == nil && len(decoded) > 0 {
 		raw = string(decoded)
+	} else if decoded, err := base64.URLEncoding.DecodeString(raw); err == nil && len(decoded) > 0 {
+		raw = string(decoded)
 	}
+
 	parts := strings.Split(raw, ",")
 	for _, p := range parts {
 		k := strings.TrimSpace(p)
 		if k == "" {
 			continue
 		}
-		if strings.HasPrefix(k, "AIzaSy") {
+
+		decodedKey := decodeSingleKey(k)
+		if strings.Contains(decodedKey, ",") && decodedKey != k {
+			g, ki, m := parseKeysFromString(decodedKey)
+			gemini = append(gemini, g...)
+			kimi = append(kimi, ki...)
+			minimax = append(minimax, m...)
+			continue
+		}
+
+		k = decodedKey
+
+		if strings.HasPrefix(k, "AIzaSy") || strings.HasPrefix(k, "AIza") {
 			gemini = append(gemini, k)
 		} else if strings.HasPrefix(k, "sk-api-") {
 			minimax = append(minimax, k)
 		} else if strings.HasPrefix(k, "sk-") || strings.HasPrefix(k, "AQ.") || strings.HasPrefix(k, "moonshot-") || strings.HasPrefix(k, "kimi-") {
 			kimi = append(kimi, k)
-		} else {
-			gemini = append(gemini, k)
 		}
 	}
 	return gemini, kimi, minimax
+}
+
+func decodeSingleKey(k string) string {
+	k = strings.Trim(strings.TrimSpace(k), "\"'")
+	if k == "" {
+		return ""
+	}
+	if strings.HasPrefix(k, "AIzaSy") || strings.HasPrefix(k, "sk-api-") || strings.HasPrefix(k, "sk-") || strings.HasPrefix(k, "AQ.") || strings.HasPrefix(k, "moonshot-") || strings.HasPrefix(k, "kimi-") {
+		return k
+	}
+
+	if decoded, err := base64.StdEncoding.DecodeString(k); err == nil && len(decoded) > 0 {
+		dStr := strings.TrimSpace(string(decoded))
+		if isRecognizedKeyString(dStr) {
+			return dStr
+		}
+	}
+	if decoded, err := base64.URLEncoding.DecodeString(k); err == nil && len(decoded) > 0 {
+		dStr := strings.TrimSpace(string(decoded))
+		if isRecognizedKeyString(dStr) {
+			return dStr
+		}
+	}
+
+	if m := len(k) % 4; m != 0 {
+		padded := k + strings.Repeat("=", 4-m)
+		if decoded, err := base64.StdEncoding.DecodeString(padded); err == nil && len(decoded) > 0 {
+			dStr := strings.TrimSpace(string(decoded))
+			if isRecognizedKeyString(dStr) {
+				return dStr
+			}
+		}
+		if decoded, err := base64.URLEncoding.DecodeString(padded); err == nil && len(decoded) > 0 {
+			dStr := strings.TrimSpace(string(decoded))
+			if isRecognizedKeyString(dStr) {
+				return dStr
+			}
+		}
+	}
+	return k
+}
+
+func isRecognizedKeyString(s string) bool {
+	return strings.Contains(s, ",") ||
+		strings.HasPrefix(s, "AIzaSy") ||
+		strings.HasPrefix(s, "sk-api-") ||
+		strings.HasPrefix(s, "sk-") ||
+		strings.HasPrefix(s, "AQ.") ||
+		strings.HasPrefix(s, "moonshot-") ||
+		strings.HasPrefix(s, "kimi-")
+}
+
+func isValidGeminiKey(k string) bool {
+	return strings.HasPrefix(k, "AIzaSy") || strings.HasPrefix(k, "AIza")
+}
+
+func reverseString(s string) string {
+	runes := []rune(s)
+	for i, j := 0, len(runes)-1; i < j; i, j = i+1, j-1 {
+		runes[i], runes[j] = runes[j], runes[i]
+	}
+	return string(runes)
 }
 
 func appendUnique(target []string, items ...string) []string {

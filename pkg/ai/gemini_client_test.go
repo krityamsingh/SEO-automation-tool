@@ -41,3 +41,23 @@ func TestProviderFailoverChain(t *testing.T) {
 		t.Errorf("expected aggregated failover error for dummy keys, got nil")
 	}
 }
+
+func TestKeyStringParsingAndClassification(t *testing.T) {
+	rawKeys := "AIzaSyGeminiKey1,sk-EClKimiKey1,sk-api-MiniMaxKey1"
+	g, k, m := parseKeysFromString(rawKeys)
+	if len(g) != 1 || g[0] != "AIzaSyGeminiKey1" {
+		t.Errorf("expected 1 gemini key, got %v", g)
+	}
+	if len(k) != 1 || k[0] != "sk-EClKimiKey1" {
+		t.Errorf("expected 1 kimi key, got %v", k)
+	}
+	if len(m) != 1 || m[0] != "sk-api-MiniMaxKey1" {
+		t.Errorf("expected 1 minimax key, got %v", m)
+	}
+
+	for _, key := range g {
+		if !isValidGeminiKey(key) {
+			t.Errorf("invalid gemini key in pool: %s", key)
+		}
+	}
+}
