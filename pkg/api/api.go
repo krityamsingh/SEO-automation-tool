@@ -2,9 +2,13 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"net/http"
+	"net/url"
+	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -20,6 +24,7 @@ import (
 	"aeo_geo_seo_agent/pkg/notification"
 	"aeo_geo_seo_agent/pkg/rag"
 	"aeo_geo_seo_agent/pkg/scheduler"
+	"aeo_geo_seo_agent/pkg/seo"
 	"aeo_geo_seo_agent/pkg/task"
 )
 
@@ -34,6 +39,7 @@ type Server struct {
 	chatAssistant *chat.ChatAssistant
 	notifManager  *notification.Manager
 	rag           *rag.RAGEngine
+	seoEngine     *seo.Engine
 	httpServer    *http.Server
 }
 
@@ -46,6 +52,7 @@ func New(db *gorm.DB, sched *scheduler.Scheduler, gemini *ai.GeminiClient, cfg *
 
 	chatAsst := chat.NewChatAssistant(db, gemini, ragEngine)
 	notifMgr := notification.NewManager(db)
+	seoEng := seo.New(gemini, cr, db)
 
 	s := &Server{
 		router:        r,
@@ -58,6 +65,7 @@ func New(db *gorm.DB, sched *scheduler.Scheduler, gemini *ai.GeminiClient, cfg *
 		chatAssistant: chatAsst,
 		notifManager:  notifMgr,
 		rag:           ragEngine,
+		seoEngine:     seoEng,
 	}
 
 	s.routes()
@@ -77,8 +85,15 @@ func (s *Server) routes() {
 	// Tasks API
 	s.router.GET("/api/tasks", s.listTasks)
 	s.router.GET("/api/tasks/:id", s.getTask)
+	s.router.GET("/api/tasks/:id/instructions", s.getTaskInstructions)
+	s.router.GET("/api/tasks/:id/export", s.exportTaskArticle)
+	s.router.POST("/api/tasks/:id/steps/:step_id/toggle", s.toggleTaskStep)
 	s.router.POST("/api/tasks/:id/submit", auth.AuthMiddleware(), s.submitTaskProof)
 	s.router.POST("/api/tasks/:id/tiebreaker", auth.AuthMiddleware(), auth.RequireDevRole(), s.devTiebreaker)
+
+	// SEO Audit API
+	s.router.POST("/api/seo/audit", s.postSEOAudit)
+	s.router.GET("/api/seo/audits", s.getSEOAudits)
 
 	// Multi-Agent Debate API
 	s.router.GET("/api/debates", s.listDebates)
@@ -615,4 +630,160 @@ func (s *Server) ragSeed(c *gin.Context) {
 		count++
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "RAG seeded from database", "documents_ingested": count})
+}
+
+// ---------------------------------------------------------------------------
+// Milestone 3 Handlers: SEO Audit & Task Enhancements
+// ---------------------------------------------------------------------------
+
+func (s *Server) postSEOAudit(c *gin.Context) {
+	var req struct {
+		URL string `json:"url"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.URL) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Valid URL is required"})
+		return
+	}
+
+	targetURL := strings.TrimSpace(req.URL)
+	parsed, err := url.ParseRequestURI(targetURL)
+	if err != nil || parsed.Scheme == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid URL format or scheme. URL must start with http:// or https://"})
+		return
+	}
+
+	report, err := s.seoEngine.OnPageAudit(c.Request.Context(), targetURL)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	reportBytes, _ := json.Marshal(report)
+	auditRecord := database.SEOAudit{
+		URL:                report.URL,
+		StatusCode:         report.StatusCode,
+		Title:              report.Title,
+		Description:        report.Description,
+		Canonical:          report.Canonical,
+		OverallSEOScore:    report.OverallSEOScore,
+		InternalLinksCount: report.InternalLinksCount,
+		ExternalLinksCount: report.ExternalLinksCount,
+		BrokenLinksCount:   len(report.BrokenLinks),
+		ReportJSON:         string(reportBytes),
+		CreatedAt:          time.Now(),
+	}
+	s.db.Create(&auditRecord)
+
+	c.JSON(http.StatusOK, report)
+}
+
+func (s *Server) getSEOAudits(c *gin.Context) {
+	var audits []database.SEOAudit
+	if err := s.db.Order("created_at DESC").Limit(50).Find(&audits).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, audits)
+}
+
+func (s *Server) getTaskInstructions(c *gin.Context) {
+	id := c.Param("id")
+	var taskRecord database.Task
+	if err := s.db.First(&taskRecord, id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Task not found"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"task_id":              taskRecord.ID,
+		"title":                taskRecord.Title,
+		"status":               taskRecord.Status,
+		"keyword":              taskRecord.Keyword,
+		"target_site":          taskRecord.BacklinkTarget,
+		"assigned_intern_id":   taskRecord.AssignedInternID,
+		"assigned_intern_name": taskRecord.AssignedInternName,
+		"article_draft":        taskRecord.ArticleDraft,
+		"step_by_step_guide":   taskRecord.ExecutionGuide,
+		"target_anchor_text":   taskRecord.TargetAnchorText,
+		"target_link":          taskRecord.TargetLinkURL,
+		"completed_steps":      taskRecord.CompletedSteps,
+	})
+}
+
+func (s *Server) exportTaskArticle(c *gin.Context) {
+	id := c.Param("id")
+	var taskRecord database.Task
+	if err := s.db.First(&taskRecord, id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Task not found"})
+		return
+	}
+
+	format := strings.ToLower(c.DefaultQuery("format", "md"))
+	content := taskRecord.ArticleDraft
+	if strings.TrimSpace(content) == "" {
+		content = taskRecord.BlogDraft
+	}
+
+	filename := "task-" + strconv.FormatUint(uint64(taskRecord.ID), 10) + "-article." + format
+	if format == "txt" {
+		c.Header("Content-Disposition", "attachment; filename="+filename)
+		c.Header("Content-Type", "text/plain; charset=utf-8")
+	} else {
+		c.Header("Content-Disposition", "attachment; filename="+filename)
+		c.Header("Content-Type", "text/markdown; charset=utf-8")
+	}
+
+	c.String(http.StatusOK, "%s", content)
+}
+
+func (s *Server) toggleTaskStep(c *gin.Context) {
+	id := c.Param("id")
+	stepID := c.Param("step_id")
+
+	var taskRecord database.Task
+	if err := s.db.First(&taskRecord, id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Task not found"})
+		return
+	}
+
+	stepsSet := make(map[string]bool)
+	if taskRecord.CompletedSteps != "" {
+		var list []string
+		if err := json.Unmarshal([]byte(taskRecord.CompletedSteps), &list); err == nil {
+			for _, item := range list {
+				stepsSet[item] = true
+			}
+		} else {
+			for _, item := range strings.Split(taskRecord.CompletedSteps, ",") {
+				if trimmed := strings.TrimSpace(item); trimmed != "" {
+					stepsSet[trimmed] = true
+				}
+			}
+		}
+	}
+
+	if stepsSet[stepID] {
+		delete(stepsSet, stepID)
+	} else {
+		stepsSet[stepID] = true
+	}
+
+	var newList []string
+	for k := range stepsSet {
+		newList = append(newList, k)
+	}
+	sort.Strings(newList)
+
+	bytes, _ := json.Marshal(newList)
+	taskRecord.CompletedSteps = string(bytes)
+	s.db.Save(&taskRecord)
+
+	c.JSON(http.StatusOK, gin.H{
+		"task_id":         taskRecord.ID,
+		"step_id":         stepID,
+		"completed":       stepsSet[stepID],
+		"completed_steps": newList,
+		"execution_guide": taskRecord.ExecutionGuide,
+		"status":          "updated",
+	})
 }

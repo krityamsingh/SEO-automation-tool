@@ -537,6 +537,7 @@
 
     <div class="nav-tabs">
       <button class="tab-btn active" onclick="switchTab('kanban')">📌 Task Board</button>
+      <button class="tab-btn" onclick="switchTab('seo-audit')">🔍 SEO Audit</button>
       <button class="tab-btn" onclick="switchTab('debates')">🤖 Agent Debates</button>
       <button class="tab-btn" onclick="switchTab('interns')">👥 Team Leaderboard</button>
       <button class="tab-btn" onclick="switchTab('analytics')">📈 SEO Analytics</button>
@@ -673,6 +674,95 @@
         <canvas id="rankChart" style="max-height: 400px;"></canvas>
       </div>
     </div>
+
+    <!-- TAB 5: SEO AUDIT DASHBOARD -->
+    <div id="tab-seo-audit" class="tab-content">
+      <div class="table-card" style="margin-bottom: 24px;">
+        <h2 style="font-family: var(--font-heading); margin-bottom: 16px;">🔍 On-Page SEO Site Audit Engine</h2>
+        <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
+          <input type="url" id="seoAuditUrlInput" class="form-control" style="flex: 1; min-width: 280px;" placeholder="https://example.com" value="https://example.com">
+          <button id="btnRunAudit" class="btn btn-primary" onclick="runSeoAudit()">Run SEO Audit</button>
+        </div>
+      </div>
+
+      <!-- Historical Audits Bar -->
+      <div id="historicalAuditsBar" style="margin-bottom: 20px; display: none;">
+        <div style="font-size: 12px; font-weight: 700; color: var(--text-muted); margin-bottom: 8px;">HISTORICAL AUDIT REPORTS:</div>
+        <div id="historicalAuditsList" style="display: flex; gap: 8px; flex-wrap: wrap;"></div>
+      </div>
+
+      <div id="auditResultsContainer" style="display: none;">
+        <!-- Score Gauge & Overview Ribbon -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; margin-bottom: 24px;">
+          <div class="metric-card" style="display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center;">
+            <div class="metric-title">Overall SEO Score</div>
+            <div id="seoGaugeChart" style="position: relative; width: 140px; height: 140px; margin: 10px 0;">
+              <canvas id="gaugeCanvas" width="140" height="140"></canvas>
+              <div id="scoreGaugeValue" style="position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 32px; font-weight: 800; font-family: var(--font-heading);">0</div>
+            </div>
+            <div id="scoreGaugeLabel" style="font-size: 13px; font-weight: 700; color: var(--emerald);">Audit Complete</div>
+          </div>
+
+          <div class="metric-card" style="grid-column: span 2;">
+            <div class="metric-title">Audit Summary Overview</div>
+            <div id="auditSummaryText" style="font-size: 14px; line-height: 1.6; color: var(--text-main); margin-top: 8px;"></div>
+          </div>
+        </div>
+
+        <!-- Grid 2-Column: Meta Tags & Heading Hierarchy -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 20px; margin-bottom: 24px;">
+          <!-- Meta Tag Analysis Card -->
+          <div class="table-card">
+            <h3 style="font-family: var(--font-heading); font-size: 16px; margin-bottom: 14px; color: var(--cyan);">🏷️ Meta Tag Analysis</h3>
+            <div id="metaTagsContent" style="font-size: 13px; display: flex; flex-direction: column; gap: 10px;"></div>
+          </div>
+
+          <!-- Heading Hierarchy Tree Card -->
+          <div class="table-card">
+            <h3 style="font-family: var(--font-heading); font-size: 16px; margin-bottom: 14px; color: var(--secondary);">🌲 Heading Hierarchy Tree (H1-H6)</h3>
+            <div id="headingIssuesContent" style="margin-bottom: 12px;"></div>
+            <div id="headingTreeContent" style="font-size: 13px; max-height: 320px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px;"></div>
+          </div>
+        </div>
+
+        <!-- Grid 2-Column: Keyword Density & Broken Links -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 20px;">
+          <!-- Keyword Density & Frequency Table -->
+          <div class="table-card">
+            <h3 style="font-family: var(--font-heading); font-size: 16px; margin-bottom: 14px; color: var(--amber);">📊 Keyword Density & Frequency</h3>
+            <div style="max-height: 300px; overflow-y: auto;">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Keyword</th>
+                    <th>Count</th>
+                    <th>Density</th>
+                  </tr>
+                </thead>
+                <tbody id="kwDensityTableBody"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Broken Links Report Table -->
+          <div class="table-card">
+            <h3 style="font-family: var(--font-heading); font-size: 16px; margin-bottom: 14px; color: var(--rose);">🔗 Broken Links Report</h3>
+            <div style="max-height: 300px; overflow-y: auto;">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Status</th>
+                    <th>URL</th>
+                    <th>Type</th>
+                  </tr>
+                </thead>
+                <tbody id="brokenLinksTableBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   </main>
 
   <!-- FAB and Chat Drawer for Intern AI Assistant -->
@@ -757,6 +847,82 @@
       <div style="display: flex; gap: 12px; justify-content: flex-end; margin-top: 24px;">
         <button class="btn btn-secondary" onclick="closeModal('modalAddIntern')">Cancel</button>
         <button class="btn btn-primary" onclick="performAddIntern()">Add Intern Account</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Task Detail Modal -->
+  <div class="modal-backdrop" id="modalTaskDetail">
+    <div class="modal-box" style="max-width: 850px; width: 95%;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; border-bottom: 1px solid var(--border-color); padding-bottom: 12px;">
+        <div>
+          <div style="font-size: 11px; font-weight: 700; color: var(--cyan); text-transform: uppercase;" id="taskDetailMeta">Task #0</div>
+          <h2 style="font-family: var(--font-heading); font-size: 20px; color: #fff;" id="taskDetailTitle">Task Details</h2>
+        </div>
+        <button style="background: none; border: none; color: var(--text-muted); font-size: 24px; cursor: pointer;" onclick="closeModal('modalTaskDetail')">✕</button>
+      </div>
+
+      <!-- Modal Tabs -->
+      <div style="display: flex; gap: 8px; margin-bottom: 20px; border-bottom: 1px solid var(--border-color); padding-bottom: 8px;">
+        <button class="tab-btn active" id="btnTabArticle" onclick="switchTaskDetailTab('article')">📄 Full Article Draft</button>
+        <button class="tab-btn" id="btnTabGuide" onclick="switchTaskDetailTab('guide')">📋 Execution Guide & Checklist</button>
+        <button class="tab-btn" id="btnTabTarget" onclick="switchTaskDetailTab('target')">🔗 Anchor & Target URL</button>
+      </div>
+
+      <!-- Tab 1: Full Article Draft -->
+      <div id="taskTabArticle" class="task-modal-tab" style="display: block;">
+        <div style="display: flex; gap: 10px; margin-bottom: 14px; flex-wrap: wrap;">
+          <button class="btn btn-primary btn-sm" onclick="copyArticleDraftToClipboard()">📋 1-Click Copy to Clipboard</button>
+          <button class="btn btn-secondary btn-sm" onclick="downloadArticleDraft('md')">⬇️ Download Markdown (.md)</button>
+          <button class="btn btn-secondary btn-sm" onclick="downloadArticleDraft('txt')">⬇️ Download Text (.txt)</button>
+        </div>
+        <div id="articleDraftView" style="background: rgba(0, 0, 0, 0.4); border: 1px solid var(--border-color); border-radius: 12px; padding: 18px; max-height: 450px; overflow-y: auto; font-family: monospace; font-size: 13px; line-height: 1.6; white-space: pre-wrap; color: #e5e7eb;">Loading article draft...</div>
+      </div>
+
+      <!-- Tab 2: Interactive Step-by-Step Execution Guide -->
+      <div id="taskTabGuide" class="task-modal-tab" style="display: none;">
+        <div style="margin-bottom: 16px; background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); border-radius: 12px; padding: 14px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <span style="font-size: 12px; font-weight: 700; color: var(--text-muted);">STEP COMPLETION PROGRESS:</span>
+            <span style="font-size: 12px; font-weight: 700; color: var(--emerald);" id="guideProgressText">0% Completed (0/5 steps)</span>
+          </div>
+          <div style="height: 8px; background: rgba(255,255,255,0.1); border-radius: 4px; overflow: hidden;">
+            <div id="guideProgressBar" style="height: 100%; width: 0%; background: linear-gradient(90deg, var(--primary), var(--emerald)); transition: width 0.3s ease;"></div>
+          </div>
+        </div>
+        <div id="executionGuideSteps" style="display: flex; flex-direction: column; gap: 12px; max-height: 400px; overflow-y: auto;">Loading guide...</div>
+      </div>
+
+      <!-- Tab 3: Anchor Text & Target URL -->
+      <div id="taskTabTarget" class="task-modal-tab" style="display: none;">
+        <div style="background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 16px;">
+          <div>
+            <div style="font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase;">Exact Target Anchor Text</div>
+            <div style="font-size: 16px; font-weight: 700; color: var(--cyan); margin-top: 4px;" id="targetAnchorDisplay">-</div>
+          </div>
+          <div>
+            <div style="font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase;">Target Link URL</div>
+            <div style="font-size: 14px; font-weight: 600; color: var(--primary); margin-top: 4px; word-break: break-all;" id="targetLinkDisplay">-</div>
+          </div>
+          <div>
+            <div style="font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase;">Target Site / Publication Domain</div>
+            <div style="font-size: 14px; font-weight: 600; color: #fff; margin-top: 4px;" id="targetSiteDisplay">-</div>
+          </div>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding-top: 12px; border-top: 1px dashed var(--border-color);">
+            <div>
+              <div style="font-size: 11px; font-weight: 700; color: var(--text-muted);">KEYWORD</div>
+              <div style="font-size: 13px; font-weight: 600; color: #fff;" id="taskKeywordDisplay">-</div>
+            </div>
+            <div>
+              <div style="font-size: 11px; font-weight: 700; color: var(--text-muted);">ASSIGNED INTERN</div>
+              <div style="font-size: 13px; font-weight: 600; color: var(--emerald);" id="taskInternDisplay">-</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style="display: flex; justify-content: flex-end; margin-top: 24px;">
+        <button class="btn btn-secondary" onclick="closeModal('modalTaskDetail')">Close</button>
       </div>
     </div>
   </div>
@@ -848,9 +1014,10 @@
       const btn = document.querySelector(`.tab-btn[onclick*="'${tabId}'"]`);
       if (btn) btn.classList.add('active');
       document.getElementById('tab-' + tabId).classList.add('active');
-      if (tabId === 'kanban')   fetchTasks();
-      if (tabId === 'debates')  fetchDebates();
-      if (tabId === 'interns')  fetchInterns();
+      if (tabId === 'kanban')    fetchTasks();
+      if (tabId === 'seo-audit') fetchHistoricalAudits();
+      if (tabId === 'debates')   fetchDebates();
+      if (tabId === 'interns')   fetchInterns();
       if (tabId === 'analytics') fetchAnalytics();
     }
 
@@ -895,10 +1062,10 @@
           const notesLine = t.verification_notes
             ? `<div style="font-size:11px;color:var(--rose);margin-bottom:4px;">📝 ${esc(t.verification_notes)}</div>` : '';
           const submitBtn = (t.status === 'assigned' || t.status === 'in_progress')
-            ? `<button class="btn btn-primary btn-sm" onclick="openSubmitModal(${JSON.stringify(t.id)}, ${JSON.stringify(t.keyword||'')})">Submit Proof</button>` : '';
+            ? `<button class="btn btn-primary btn-sm" onclick="event.stopPropagation(); openSubmitModal(${JSON.stringify(t.id)}, ${JSON.stringify(t.keyword||'')})">Submit Proof</button>` : '';
 
           const card = `
-            <div class="task-card">
+            <div class="task-card" onclick="openTaskDetailModal(${t.id})">
               <div class="task-meta">
                 <span class="angle-tag angle-${angleClass}">${esc(t.angle || 'SEO')}</span>
                 <span style="font-size:11px;color:var(--text-muted);">Task #${esc(t.id)}</span>
@@ -1436,6 +1603,317 @@
       agentChatInterval = setInterval(fetchAgentFeed, 5000);
       notifInterval     = setInterval(fetchNotifications, 10000);
       taskInterval      = setInterval(fetchTasks, 15000);
+    }
+
+    // ─── SEO AUDIT ───────────────────────────────────────────────────────────
+    async function fetchHistoricalAudits() {
+      try {
+        const res = await fetch('/api/seo/audits');
+        if (!res.ok) return;
+        const audits = await res.json();
+        const bar = document.getElementById('historicalAuditsBar');
+        const list = document.getElementById('historicalAuditsList');
+        if (!audits || audits.length === 0) {
+          bar.style.display = 'none';
+          return;
+        }
+        bar.style.display = 'block';
+        list.innerHTML = audits.slice(0, 6).map(a => `
+          <button class="btn btn-secondary btn-sm" onclick="runSeoAudit('${esc(a.url)}')">
+            ${esc(a.url.replace(/^https?:\/\//,''))} (${a.overall_seo_score}/100)
+          </button>
+        `).join('');
+      } catch(e) {}
+    }
+
+    async function runSeoAudit(targetUrlOverride) {
+      const urlInput = document.getElementById('seoAuditUrlInput');
+      const targetUrl = targetUrlOverride || urlInput.value.trim();
+      if (!targetUrl) return alert('Please enter a valid URL');
+      if (targetUrlOverride) urlInput.value = targetUrlOverride;
+
+      const btn = document.getElementById('btnRunAudit');
+      btn.disabled = true;
+      btn.innerText = '🔍 Auditing...';
+      showToast('🔍 Running On-Page SEO audit for ' + targetUrl + '...', 'info');
+
+      try {
+        const res = await fetch('/api/seo/audit', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: targetUrl })
+        });
+        const report = await res.json();
+        if (res.ok) {
+          renderAuditReport(report);
+          fetchHistoricalAudits();
+          showToast('✅ SEO Audit Complete! Score: ' + report.overall_seo_score + '/100', 'success');
+        } else {
+          showToast('❌ Audit Failed: ' + (report.error || 'Unknown error'), 'error');
+        }
+      } catch(e) {
+        showToast('❌ Audit Error: ' + e.message, 'error');
+      } finally {
+        btn.disabled = false;
+        btn.innerText = 'Run SEO Audit';
+      }
+    }
+
+    function renderAuditReport(r) {
+      document.getElementById('auditResultsContainer').style.display = 'block';
+
+      // Score Gauge
+      const score = r.overall_seo_score || 0;
+      document.getElementById('scoreGaugeValue').innerText = score;
+      const scoreColor = score >= 80 ? 'var(--emerald)' : (score >= 60 ? 'var(--amber)' : 'var(--rose)');
+      document.getElementById('scoreGaugeValue').style.color = scoreColor;
+      document.getElementById('scoreGaugeLabel').innerText = score >= 80 ? '🌟 Good SEO Health' : (score >= 60 ? '⚠️ Fair - Optimization Needed' : '❌ Critical SEO Issues');
+      document.getElementById('scoreGaugeLabel').style.color = scoreColor;
+
+      drawScoreGaugeCanvas(score);
+
+      // Summary Text
+      const summaryEl = document.getElementById('auditSummaryText');
+      summaryEl.innerHTML = `
+        <b>Target URL:</b> <a href="${esc(r.url)}" target="_blank" style="color:var(--cyan);">${esc(r.url)}</a> (Status ${r.status_code})<br>
+        <b>Title Length:</b> ${r.title ? r.title.length + ' chars' : 'Missing'} | 
+        <b>Description:</b> ${r.description ? r.description.length + ' chars' : 'Missing'} | 
+        <b>Links:</b> ${r.internal_links_count || 0} Internal, ${r.external_links_count || 0} External, <span style="color:${(r.broken_links||[]).length>0?'var(--rose)':'var(--emerald)'};">${(r.broken_links||[]).length} Broken</span>
+      `;
+
+      // Meta Tags Analysis
+      const metaEl = document.getElementById('metaTagsContent');
+      let ogTagsHtml = '';
+      if (r.og_tags && Object.keys(r.og_tags).length > 0) {
+        ogTagsHtml = Object.entries(r.og_tags).map(([k,v]) => `<div><b style="color:var(--text-muted);">${esc(k)}:</b> ${esc(v)}</div>`).join('');
+      } else {
+        ogTagsHtml = '<div style="color:var(--rose);">No Open Graph (OG) meta tags found.</div>';
+      }
+      metaEl.innerHTML = `
+        <div><b style="color:var(--cyan);">Title Tag:</b> ${r.title ? esc(r.title) : '<span style="color:var(--rose);">Missing</span>'}</div>
+        <div><b style="color:var(--cyan);">Meta Description:</b> ${r.description ? esc(r.description) : '<span style="color:var(--amber);">Missing</span>'}</div>
+        <div><b style="color:var(--cyan);">Canonical URL:</b> ${r.canonical ? esc(r.canonical) : '<span style="color:var(--amber);">Missing</span>'}</div>
+        <div style="margin-top:6px;"><b style="color:var(--cyan);">Open Graph (OG) Tags:</b></div>
+        <div style="padding-left:10px; border-left:2px solid var(--border-color);">${ogTagsHtml}</div>
+      `;
+
+      // Heading Hierarchy Tree
+      const issuesEl = document.getElementById('headingIssuesContent');
+      const treeEl = document.getElementById('headingTreeContent');
+      if (r.heading_issues && r.heading_issues.length > 0) {
+        issuesEl.innerHTML = r.heading_issues.map(iss => `<div style="font-size:12px;color:var(--rose);">⚠️ ${esc(iss)}</div>`).join('');
+      } else {
+        issuesEl.innerHTML = '<div style="font-size:12px;color:var(--emerald);">✅ Heading hierarchy is clean and properly ordered.</div>';
+      }
+
+      if (r.heading_hierarchy && r.heading_hierarchy.length > 0) {
+        treeEl.innerHTML = r.heading_hierarchy.map(h => {
+          const tag = esc(h.tag).toUpperCase();
+          const level = parseInt(tag.replace('H','')) || 1;
+          const indent = (level - 1) * 16;
+          return `<div style="padding-left:${indent}px; display:flex; align-items:center; gap:8px;">
+            <span class="angle-tag angle-seo" style="font-size:10px;">${tag}</span>
+            <span style="color:#e5e7eb;">${esc(h.text)}</span>
+          </div>`;
+        }).join('');
+      } else {
+        treeEl.innerHTML = '<div style="color:var(--text-muted);">No headings (H1-H6) detected.</div>';
+      }
+
+      // Keyword Density Table
+      const kwBody = document.getElementById('kwDensityTableBody');
+      if (r.top_keywords && r.top_keywords.length > 0) {
+        kwBody.innerHTML = r.top_keywords.map(kw => `
+          <tr>
+            <td style="font-weight:600;color:var(--cyan);">${esc(kw.keyword)}</td>
+            <td>${kw.count}</td>
+            <td><b style="color:var(--emerald);">${kw.density.toFixed(2)}%</b></td>
+          </tr>
+        `).join('');
+      } else {
+        kwBody.innerHTML = '<tr><td colspan="3" style="text-align:center;color:var(--text-muted);">No keyword density data available.</td></tr>';
+      }
+
+      // Broken Links Report Table
+      const brokenBody = document.getElementById('brokenLinksTableBody');
+      if (r.broken_links && r.broken_links.length > 0) {
+        brokenBody.innerHTML = r.broken_links.map(l => `
+          <tr>
+            <td><span class="user-role-badge role-dev" style="background:rgba(244,63,94,0.2);color:var(--rose);">${l.status_code || 'Broken'}</span></td>
+            <td style="word-break:break-all;font-size:12px;">${esc(l.url)}</td>
+            <td><span class="angle-tag ${l.is_external?'angle-aeo':'angle-geo'}">${l.is_external?'External':'Internal'}</span></td>
+          </tr>
+        `).join('');
+      } else {
+        brokenBody.innerHTML = '<tr><td colspan="3" style="text-align:center;color:var(--emerald);">✅ No broken links detected!</td></tr>';
+      }
+    }
+
+    function drawScoreGaugeCanvas(score) {
+      const canvas = document.getElementById('gaugeCanvas');
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      ctx.clearRect(0, 0, 140, 140);
+
+      // Background ring
+      ctx.beginPath();
+      ctx.arc(70, 70, 58, 0, 2 * Math.PI);
+      ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+      ctx.lineWidth = 12;
+      ctx.stroke();
+
+      // Progress arc
+      const startAngle = -0.5 * Math.PI;
+      const endAngle = startAngle + (score / 100) * 2 * Math.PI;
+      ctx.beginPath();
+      ctx.arc(70, 70, 58, startAngle, endAngle);
+      ctx.strokeStyle = score >= 80 ? '#10b981' : (score >= 60 ? '#f59e0b' : '#f43f5e');
+      ctx.lineWidth = 12;
+      ctx.lineCap = 'round';
+      ctx.stroke();
+    }
+
+    // ─── TASK DETAIL MODAL ───────────────────────────────────────────────────
+    let currentModalTask = null;
+
+    async function openTaskDetailModal(taskId) {
+      try {
+        const res = await fetch('/api/tasks/' + taskId + '/instructions');
+        if (!res.ok) throw new Error('Task instructions not found');
+        currentModalTask = await res.json();
+
+        document.getElementById('taskDetailMeta').innerText = 'Task #' + currentModalTask.task_id + ' · Status: ' + (currentModalTask.status || '').toUpperCase();
+        document.getElementById('taskDetailTitle').innerText = currentModalTask.title || currentModalTask.keyword || 'Task Detail';
+
+        // Tab 1: Article Draft
+        document.getElementById('articleDraftView').innerText = currentModalTask.article_draft || 'No article draft generated yet.';
+
+        // Tab 2: Execution Guide & Checklist
+        renderExecutionGuideSteps();
+
+        // Tab 3: Anchor & Target Details
+        document.getElementById('targetAnchorDisplay').innerText = currentModalTask.target_anchor_text || '-';
+        document.getElementById('targetLinkDisplay').innerText = currentModalTask.target_link || '-';
+        document.getElementById('targetSiteDisplay').innerText = currentModalTask.target_site || '-';
+        document.getElementById('taskKeywordDisplay').innerText = currentModalTask.keyword || '-';
+        document.getElementById('taskInternDisplay').innerText = currentModalTask.assigned_intern_name || 'Unassigned';
+
+        switchTaskDetailTab('article');
+        document.getElementById('modalTaskDetail').classList.add('active');
+      } catch(e) {
+        showToast('❌ Error opening task details: ' + e.message, 'error');
+      }
+    }
+
+    function switchTaskDetailTab(tabName) {
+      document.getElementById('btnTabArticle').classList.toggle('active', tabName === 'article');
+      document.getElementById('btnTabGuide').classList.toggle('active', tabName === 'guide');
+      document.getElementById('btnTabTarget').classList.toggle('active', tabName === 'target');
+
+      document.getElementById('taskTabArticle').style.display = tabName === 'article' ? 'block' : 'none';
+      document.getElementById('taskTabGuide').style.display   = tabName === 'guide'   ? 'block' : 'none';
+      document.getElementById('taskTabTarget').style.display  = tabName === 'target'  ? 'block' : 'none';
+    }
+
+    function copyArticleDraftToClipboard() {
+      if (!currentModalTask || !currentModalTask.article_draft) return showToast('❌ No article draft to copy', 'error');
+      navigator.clipboard.writeText(currentModalTask.article_draft)
+        .then(() => showToast('📋 Article draft copied to clipboard!', 'success'))
+        .catch(err => showToast('❌ Copy failed: ' + err.message, 'error'));
+    }
+
+    function downloadArticleDraft(format) {
+      if (!currentModalTask || !currentModalTask.task_id) return;
+      window.open('/api/tasks/' + currentModalTask.task_id + '/export?format=' + format, '_blank');
+    }
+
+    function renderExecutionGuideSteps() {
+      if (!currentModalTask) return;
+      const guideText = currentModalTask.step_by_step_guide || '';
+      const container = document.getElementById('executionGuideSteps');
+      container.innerHTML = '';
+
+      let completedList = [];
+      try {
+        if (currentModalTask.completed_steps) {
+          completedList = typeof currentModalTask.completed_steps === 'string'
+            ? JSON.parse(currentModalTask.completed_steps)
+            : currentModalTask.completed_steps;
+        }
+      } catch(e) {}
+      const completedSet = new Set(completedList.map(String));
+
+      // Parse guide into steps or split by Step 1..5 / ### Step
+      const stepBlocks = [];
+      const lines = guideText.split('\n');
+      let currentStep = null;
+
+      lines.forEach(line => {
+        if (line.match(/^###?\s*Step\s*\d+/i) || line.match(/^Step\s*\d+:/i)) {
+          if (currentStep) stepBlocks.push(currentStep);
+          currentStep = { title: line.replace(/^###?\s*/, ''), body: [] };
+        } else if (currentStep) {
+          currentStep.body.push(line);
+        }
+      });
+      if (currentStep) stepBlocks.push(currentStep);
+
+      // Fallback if parsing didn't find steps
+      if (stepBlocks.length === 0) {
+        const defaultSteps = [
+          { title: "Step 1: Target Site Registration & Onboarding", body: ["Navigate to target publication site and create contributor account."] },
+          { title: "Step 2: Article Draft Placement & Formatting", body: ["Copy the full article draft and paste into editor with proper Markdown."] },
+          { title: "Step 3: Exact Anchor Text Insertion & Target Link Embedding", body: ["Embed target link using exact anchor text in relevant paragraph."] },
+          { title: "Step 4: Final Editorial Review & Publication", body: ["Preview article formatting and publish live."] },
+          { title: "Step 5: Proof Submission & Verification Trigger", body: ["Copy published live URL and submit for verification."] }
+        ];
+        stepBlocks.push(...defaultSteps);
+      }
+
+      const totalSteps = stepBlocks.length;
+      let doneCount = 0;
+
+      stepBlocks.forEach((sb, idx) => {
+        const stepId = String(idx + 1);
+        const isChecked = completedSet.has(stepId);
+        if (isChecked) doneCount++;
+
+        const itemHtml = `
+          <div style="background:rgba(255,255,255,0.03); border:1px solid ${isChecked ? 'var(--emerald)' : 'var(--border-color)'}; border-radius:10px; padding:14px; display:flex; gap:12px; align-items:flex-start;">
+            <input type="checkbox" style="width:20px; height:20px; accent-color:var(--emerald); cursor:pointer; margin-top:2px;"
+                   ${isChecked ? 'checked' : ''} onchange="toggleTaskStepCheckbox('${stepId}')">
+            <div style="flex:1;">
+              <div style="font-weight:700; font-size:14px; color:${isChecked ? 'var(--emerald)' : '#fff'};">${esc(sb.title)}</div>
+              <div style="font-size:12px; color:var(--text-muted); margin-top:4px; line-height:1.4; white-space:pre-wrap;">${esc(Array.isArray(sb.body) ? sb.body.join('\n').trim() : sb.body)}</div>
+            </div>
+          </div>
+        `;
+        container.innerHTML += itemHtml;
+      });
+
+      const pct = Math.round((doneCount / totalSteps) * 100);
+      document.getElementById('guideProgressBar').style.width = pct + '%';
+      document.getElementById('guideProgressText').innerText = pct + '% Completed (' + doneCount + '/' + totalSteps + ' steps)';
+    }
+
+    async function toggleTaskStepCheckbox(stepId) {
+      if (!currentModalTask) return;
+      const taskId = currentModalTask.task_id;
+      try {
+        const res = await fetch('/api/tasks/' + taskId + '/steps/' + stepId + '/toggle', {
+          method: 'POST'
+        });
+        if (res.ok) {
+          const data = await res.json();
+          currentModalTask.completed_steps = data.completed_steps;
+          renderExecutionGuideSteps();
+          showToast('✅ Step ' + stepId + (data.completed ? ' completed' : ' unchecked'), 'info');
+        } else {
+          showToast('❌ Step toggle failed', 'error');
+        }
+      } catch(e) {
+        showToast('❌ Error toggling step: ' + e.message, 'error');
+      }
     }
 
     // ─── INIT ─────────────────────────────────────────────────────────────────

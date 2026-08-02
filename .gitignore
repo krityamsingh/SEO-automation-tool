@@ -76,3 +76,6 @@ htmlcov/
 
 # Test / Scratch
 scratch/
+.agents/
+agent
+

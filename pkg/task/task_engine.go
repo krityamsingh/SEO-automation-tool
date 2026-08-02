@@ -8,6 +8,8 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strings"
+	"sync"
 	"time"
 
 	"gorm.io/gorm"
@@ -17,6 +19,7 @@ import (
 	"aeo_geo_seo_agent/pkg/crawler"
 	"aeo_geo_seo_agent/pkg/database"
 	"aeo_geo_seo_agent/pkg/rag"
+	"aeo_geo_seo_agent/pkg/scriptwriter"
 	"aeo_geo_seo_agent/pkg/util"
 )
 
@@ -25,6 +28,7 @@ type TaskEngine struct {
 	gemini  *ai.GeminiClient
 	crawler *crawler.Crawler
 	rag     *rag.RAGEngine
+	mu      sync.Mutex
 }
 
 func NewTaskEngine(db *gorm.DB, gemini *ai.GeminiClient, cr *crawler.Crawler, ragEngine *rag.RAGEngine) *TaskEngine {
@@ -38,6 +42,9 @@ func NewTaskEngine(db *gorm.DB, gemini *ai.GeminiClient, cr *crawler.Crawler, ra
 
 // DispatchAndAssignTask takes an approved debate result, creates the task record, and auto-assigns it to an intern
 func (te *TaskEngine) DispatchAndAssignTask(ctx context.Context, debate *agent.DebateResult) (*database.Task, error) {
+	te.mu.Lock()
+	defer te.mu.Unlock()
+
 	// Auto-Assignment Engine: Select best intern weighted by performance and low pending tasks
 	assignedUser, err := te.selectOptimalIntern()
 	if err != nil {
@@ -54,12 +61,30 @@ func (te *TaskEngine) DispatchAndAssignTask(ctx context.Context, debate *agent.D
 		status = "assigned"
 	}
 
+	targetAnchorText := debate.Keyword
+	if targetAnchorText == "" {
+		targetAnchorText = debate.Title
+	}
+	targetLinkURL := debate.BacklinkTarget
+	if targetLinkURL != "" && !strings.HasPrefix(targetLinkURL, "http://") && !strings.HasPrefix(targetLinkURL, "https://") {
+		targetLinkURL = "https://" + targetLinkURL
+	}
+
+	writer := scriptwriter.New(te.gemini, te.db)
+	articleDraft, err := writer.GenerateFullArticleDraft(ctx, debate.Title, debate.Keyword, targetLinkURL, targetAnchorText)
+	if err != nil {
+		slog.Warn("TASK ENGINE: failed to generate full article draft", "error", err)
+	}
+
 	taskRecord := database.Task{
 		Keyword:            debate.Keyword,
 		BacklinkTarget:     debate.BacklinkTarget,
+		TargetAnchorText:   targetAnchorText,
+		TargetLinkURL:      targetLinkURL,
 		Angle:              debate.Angle,
 		Title:              debate.Title,
 		BlogDraft:          debate.BlogDraft,
+		ArticleDraft:       articleDraft,
 		SocialDraft:        debate.SocialDraft,
 		AssignedInternID:   internID,
 		AssignedInternName: internName,
@@ -70,21 +95,46 @@ func (te *TaskEngine) DispatchAndAssignTask(ctx context.Context, debate *agent.D
 		CreatedAt:          time.Now(),
 	}
 
-	if err := te.db.Create(&taskRecord).Error; err != nil {
+	execGuide, err := writer.GenerateInternExecutionGuide(ctx, &taskRecord)
+	if err != nil {
+		slog.Warn("TASK ENGINE: failed to generate intern execution guide", "error", err)
+	}
+	taskRecord.ExecutionGuide = execGuide
+
+	err = te.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&taskRecord).Error; err != nil {
+			return fmt.Errorf("failed to create task record: %w", err)
+		}
+
+		// Update Debate record with Task ID
+		if debate.DebateID != 0 {
+			tx.Model(&database.AgentDebate{}).Where("id = ?", debate.DebateID).Update("task_id", taskRecord.ID)
+		}
+
+		// If assigned to an intern, update intern pending count
+		if assignedUser != nil {
+			tx.Model(assignedUser).UpdateColumn("tasks_pending", gorm.Expr("tasks_pending + 1"))
+		}
+		return nil
+	})
+	if err != nil {
 		return nil, fmt.Errorf("failed to create task record: %w", err)
 	}
 
-	// Update Debate record with Task ID
-	te.db.Model(&database.AgentDebate{}).Where("id = ?", debate.DebateID).Update("task_id", taskRecord.ID)
+	// Index generated full article draft and step-by-step guide into RAG memory
+	if te.rag != nil {
+		if err := te.rag.IngestTaskContent(taskRecord.ID, taskRecord.Title, taskRecord.ArticleDraft, taskRecord.ExecutionGuide); err != nil {
+			slog.Warn("TASK ENGINE: failed to ingest task content into RAG", "task_id", taskRecord.ID, "error", err)
+		}
+	}
 
-	// If assigned to an intern, update intern pending count and notify intern
+	// If assigned to an intern, notify intern
 	if assignedUser != nil {
-		te.db.Model(assignedUser).UpdateColumn("tasks_pending", gorm.Expr("tasks_pending + 1"))
 		te.createNotification(assignedUser.ID, "intern", "New Task Assigned",
 			fmt.Sprintf("Task #%d ('%s' on %s) has been auto-assigned to you.", taskRecord.ID, taskRecord.Keyword, taskRecord.BacklinkTarget), "task_assigned")
 	}
 
-	slog.Info("TASK DISPATCHER AGENT: created task record", "task_id", taskRecord.ID, "assigned_to", internName)
+	slog.Info("TASK DISPATCHER AGENT: created task record with article and execution guide", "task_id", taskRecord.ID, "assigned_to", internName)
 	return &taskRecord, nil
 }
 
@@ -228,7 +278,9 @@ Return JSON ONLY:
 	notes := fmt.Sprintf("Search ranking improved from position #%d to #%d post-backlink live verification.", prevRank, newRank)
 
 	// Ingest outcome into system-wide RAG memory
-	te.rag.IngestOutcomeResult(task.ID, task.Keyword, task.BacklinkTarget, newRank, prevRank, notes)
+	if te.rag != nil {
+		te.rag.IngestOutcomeResult(task.ID, task.Keyword, task.BacklinkTarget, newRank, prevRank, notes)
+	}
 
 	// Notify Devs if rank dropped
 	if newRank > prevRank {

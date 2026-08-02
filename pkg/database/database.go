@@ -73,6 +73,7 @@ func AutoMigrate(db *gorm.DB) error {
 		&AgentDebate{},
 		&Notification{},
 		&RankHistory{},
+		&SEOAudit{},
 	)
 	if err == nil {
 		SeedDefaultData(db)
@@ -109,14 +110,18 @@ func SeedDefaultData(db *gorm.DB) {
 		sampleTask := Task{
 			Keyword:            "Model Context Protocol implementation",
 			BacklinkTarget:     "dev.to",
+			TargetAnchorText:   "Model Context Protocol implementation",
+			TargetLinkURL:      "https://dev.to",
 			Angle:              "GEO",
 			Title:              "Model Context Protocol Implementation: The Backbone of Generative Engine Optimization (GEO)",
 			BlogDraft:          "Generative Engine Optimization (GEO) is rapidly redefining how brands maintain visibility in an AI-first search landscape. As search engines evolve from traditional link indexing to generative responses, a robust Model Context Protocol implementation has become the gold standard for technical GEO.",
+			ArticleDraft:       "# Model Context Protocol Implementation\n\nFull article draft...",
+			ExecutionGuide:     "Step 1: Register on dev.to...",
 			SocialDraft:        "Is your brand ready for the shift from SEO to Generative Engine Optimization (GEO)? 🚀",
 			AssignedInternID:   assignedID,
 			AssignedInternName: "anuj",
 			Status:             "assigned",
-			CreatedAt:           time.Now(),
+			CreatedAt:          time.Now(),
 		}
 		db.Create(&sampleTask)
 	}
@@ -139,26 +144,31 @@ type User struct {
 }
 
 type Task struct {
-	ID                uint       `gorm:"primaryKey" json:"id"`
-	Keyword           string     `gorm:"not null;index" json:"keyword"`
-	BacklinkTarget    string     `gorm:"not null" json:"backlink_target"`
-	Angle             string     `json:"angle"` // SEO, AEO, GEO
-	Title             string     `json:"title"`
-	BlogDraft         string     `gorm:"type:text" json:"blog_draft"`
-	SocialDraft       string     `gorm:"type:text" json:"social_draft"`
-	AssignedInternID  *uint      `gorm:"index" json:"assigned_intern_id"`
-	AssignedInternName string    `json:"assigned_intern_name"`
-	Status            string     `gorm:"default:proposed;index" json:"status"` // proposed, ready, assigned, in_progress, submitted, verified, rejected, closed
-	SubmittedProofURL string     `json:"submitted_proof_url"`
-	VerificationNotes string     `gorm:"type:text" json:"verification_notes"`
-	RankCurrent       int        `gorm:"default:0" json:"rank_current"`
-	RankPrevious      int        `gorm:"default:0" json:"rank_previous"`
-	FlaggedForDev     bool       `gorm:"default:false" json:"flagged_for_dev"`
-	FlagReason        string     `json:"flag_reason"`
-	DebateID          *uint      `gorm:"index" json:"debate_id"`
-	CreatedAt         time.Time  `json:"created_at"`
-	SubmittedAt       *time.Time `json:"submitted_at"`
-	VerifiedAt        *time.Time `json:"verified_at"`
+	ID                 uint       `gorm:"primaryKey" json:"id"`
+	Keyword            string     `gorm:"not null;index" json:"keyword"`
+	BacklinkTarget     string     `gorm:"not null" json:"backlink_target"`
+	TargetAnchorText   string     `gorm:"type:text" json:"target_anchor_text"`
+	TargetLinkURL      string     `gorm:"type:text" json:"target_link_url"`
+	Angle              string     `json:"angle"` // SEO, AEO, GEO
+	Title              string     `json:"title"`
+	BlogDraft          string     `gorm:"type:text" json:"blog_draft"`
+	ArticleDraft       string     `gorm:"type:text" json:"article_draft"`
+	ExecutionGuide     string     `gorm:"type:text" json:"execution_guide"`
+	SocialDraft        string     `gorm:"type:text" json:"social_draft"`
+	AssignedInternID   *uint      `gorm:"index" json:"assigned_intern_id"`
+	AssignedInternName string     `json:"assigned_intern_name"`
+	Status             string     `gorm:"default:proposed;index" json:"status"` // proposed, ready, assigned, in_progress, submitted, verified, rejected, closed
+	SubmittedProofURL  string     `json:"submitted_proof_url"`
+	VerificationNotes  string     `gorm:"type:text" json:"verification_notes"`
+	RankCurrent        int        `gorm:"default:0" json:"rank_current"`
+	RankPrevious       int        `gorm:"default:0" json:"rank_previous"`
+	FlaggedForDev      bool       `gorm:"default:false" json:"flagged_for_dev"`
+	FlagReason         string     `json:"flag_reason"`
+	DebateID           *uint      `gorm:"index" json:"debate_id"`
+	CompletedSteps     string     `gorm:"type:text" json:"completed_steps"`
+	CreatedAt          time.Time  `json:"created_at"`
+	SubmittedAt        *time.Time `json:"submitted_at"`
+	VerifiedAt         *time.Time `json:"verified_at"`
 }
 
 type AgentDebate struct {
@@ -191,6 +201,21 @@ type RankHistory struct {
 	RankPosition int       `json:"rank_position"`
 	TrafficScore float64   `json:"traffic_score"`
 	CheckedAt    time.Time `json:"checked_at"`
+}
+
+type SEOAudit struct {
+	ID                 uint      `gorm:"primaryKey" json:"id"`
+	URL                string    `gorm:"index;not null" json:"url"`
+	StatusCode         int       `json:"status_code"`
+	Title              string    `json:"title"`
+	Description        string    `json:"description"`
+	Canonical          string    `json:"canonical"`
+	OverallSEOScore    int       `json:"overall_seo_score"`
+	InternalLinksCount int       `json:"internal_links_count"`
+	ExternalLinksCount int       `json:"external_links_count"`
+	BrokenLinksCount   int       `json:"broken_links_count"`
+	ReportJSON         string    `gorm:"type:text" json:"report_json,omitempty"`
+	CreatedAt          time.Time `json:"created_at"`
 }
 
 type Keyword struct {

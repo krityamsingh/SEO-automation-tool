@@ -114,9 +114,91 @@ func (r *RAGEngine) IngestOutcomeResult(taskID uint, keyword, targetSite string,
 	)
 }
 
+// IngestTaskContent indexes generated full article draft and step-by-step guide into system RAG memory under category "task_content"
+func (r *RAGEngine) IngestTaskContent(taskID uint, title, articleDraft, executionGuide string) error {
+	if strings.TrimSpace(articleDraft) == "" && strings.TrimSpace(executionGuide) == "" {
+		return nil
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	taskTag := fmt.Sprintf("task-content-%d", taskID)
+	combinedText := fmt.Sprintf("TASK TITLE: %s\n\n=== FULL ARTICLE DRAFT ===\n%s\n\n=== EXECUTION GUIDE ===\n%s", title, articleDraft, executionGuide)
+
+	paragraphs := strings.Split(combinedText, "\n")
+	var currentChunk strings.Builder
+	wordCount := 0
+	count := 0
+
+	for _, p := range paragraphs {
+		p = strings.TrimSpace(p)
+		if len(p) == 0 {
+			continue
+		}
+
+		words := strings.Fields(p)
+		if wordCount+len(words) > 300 && currentChunk.Len() > 0 {
+			chunkText := currentChunk.String()
+			chunk := DocumentChunk{
+				ID:         fmt.Sprintf("%s-%d", taskTag, count),
+				SourceURL:  fmt.Sprintf("task://%d", taskID),
+				Title:      fmt.Sprintf("Task #%d Content: %s", taskID, title),
+				Content:    chunkText,
+				Category:   "task_content",
+				Keyword:    strings.ToLower(title),
+				TargetSite: "",
+				Metadata: map[string]string{
+					"task_id": fmt.Sprintf("%d", taskID),
+					"type":    "task_content",
+				},
+				Words:     tokenize(chunkText + " " + title),
+				CreatedAt: time.Now(),
+			}
+			r.chunks = append(r.chunks, chunk)
+			count++
+			currentChunk.Reset()
+			wordCount = 0
+		}
+
+		currentChunk.WriteString(p)
+		currentChunk.WriteString("\n")
+		wordCount += len(words)
+	}
+
+	if currentChunk.Len() > 0 {
+		chunkText := currentChunk.String()
+		chunk := DocumentChunk{
+			ID:         fmt.Sprintf("%s-%d", taskTag, count),
+			SourceURL:  fmt.Sprintf("task://%d", taskID),
+			Title:      fmt.Sprintf("Task #%d Content: %s", taskID, title),
+			Content:    chunkText,
+			Category:   "task_content",
+			Keyword:    strings.ToLower(title),
+			TargetSite: "",
+			Metadata: map[string]string{
+				"task_id": fmt.Sprintf("%d", taskID),
+				"type":    "task_content",
+			},
+			Words:     tokenize(chunkText + " " + title),
+			CreatedAt: time.Now(),
+		}
+		r.chunks = append(r.chunks, chunk)
+		count++
+	}
+
+	r.nextID += uint64(count)
+	slog.Info("RAG: ingested task content chunks", "task_id", taskID, "chunks_added", count, "category", "task_content")
+	return nil
+}
+
 // IngestURL crawls a URL and stores semantic chunks in the RAG store
 func (r *RAGEngine) IngestURL(ctx context.Context, targetURL string) (int, error) {
 	slog.Info("RAG: ingesting knowledge from URL", "url", targetURL)
+
+	if r.crawler == nil {
+		return 0, fmt.Errorf("RAG crawler is nil")
+	}
 
 	pages, err := r.crawler.Crawl(targetURL, 1, 10)
 	if err != nil {
